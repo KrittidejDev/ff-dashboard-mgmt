@@ -1,0 +1,34 @@
+# Node.js
+**/node_modules/
+**/.next/
+**/out/
+**/build/
+**/.pnp
+.pnp.*
+**/*.tsbuildinfo
+
+# Environment variables (Do NOT commit sensitive credentials)
+**/.env
+**/.env.production
+**/.env.local
+**/.env.development.local
+**/.env.test.local
+**/.env.production.local
+
+# Go Binaries & test tools
+backend/main
+backend/server
+backend/scratch/
+backend/test_db
+
+# OS Files
+.DS_Store
+Thumbs.db
+*.pem
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*

@@ -1,0 +1,14 @@
+# Don't commit .env files (secrets)
+.env
+
+# Don't commit .env.production files (real secrets, created from .example)
+.env.production
+
+# Don't commit backup archives
+backup/
+
+# Don't commit image archives (large binaries)
+*.tar.gz
+
+# Ignore DS_Store
+.DS_Store

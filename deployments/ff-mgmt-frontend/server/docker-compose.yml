@@ -1,0 +1,23 @@
+services:
+  frontend:
+    image: "ff-dashboard-mgmt-frontend:latest"
+    container_name: "ff-dashboard-mgmt-frontend"
+    restart: always
+    env_file:
+      - .env.production
+    ports:
+      - "${FRONTEND_PORT:-3055}:3000"
+    healthcheck:
+      disable: true
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - dashboard-network
+
+networks:
+  dashboard-network:
+    name: ff-dashboard-network
+    external: true

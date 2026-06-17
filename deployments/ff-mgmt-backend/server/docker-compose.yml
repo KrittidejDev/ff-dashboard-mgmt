@@ -1,0 +1,33 @@
+services:
+  backend:
+    image: "ff-dashboard-mgmt-backend:latest"
+    container_name: "ff-dashboard-mgmt-backend"
+    restart: always
+    env_file:
+      - .env.production
+    ports:
+      - "${BACKEND_PORT:-8083}:8081"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - dashboard-network
+      - ff-river-network
+
+networks:
+  dashboard-network:
+    name: ff-dashboard-network
+    external: true
+  ff-river-network:
+    name: ff-river-network
+    external: true

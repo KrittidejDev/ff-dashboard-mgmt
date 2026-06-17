@@ -1,0 +1,294 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f8fafc; /* Slate 50 - clean light gray background */
+  --foreground: #0f172a; /* Slate 900 - dark slate text */
+  --card-bg: rgba(255, 255, 255, 0.85); /* Premium translucent white */
+  --border-color: rgba(15, 23, 42, 0.08); /* Soft slate border */
+  --primary-accent: #4f46e5; /* Premium Indigo */
+  --secondary-accent: #059669; /* Emerald */
+  --warning-accent: #d97706; /* Amber */
+  --danger-accent: #dc2626; /* Rose */
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card-bg: var(--card-bg);
+  --color-border-color: var(--border-color);
+  --color-primary-accent: var(--primary-accent);
+  --color-secondary-accent: var(--secondary-accent);
+  --color-warning-accent: var(--warning-accent);
+  --color-danger-accent: var(--danger-accent);
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  overflow-x: hidden;
+}
+
+/* Glassmorphism panel styling */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  box-shadow: 0 8px 32px 0 rgba(15, 23, 42, 0.05);
+}
+
+/* Subtle micro-animations for responsive cards */
+.hover-scale {
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.hover-scale:hover {
+  transform: translateY(-2px) scale(1.01);
+  box-shadow: 0 12px 24px -10px rgba(99, 102, 241, 0.15);
+  border-color: rgba(99, 102, 241, 0.2);
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(241, 245, 249, 0.5);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(99, 102, 241, 0.2);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(99, 102, 241, 0.4);
+}
+
+/* Leaflet Map Premium Light Mode Overlay */
+.leaflet-container {
+  background: #f1f5f9 !important;
+}
+
+.leaflet-popup-content-wrapper {
+  background: rgba(255, 255, 255, 0.98) !important;
+  color: #0f172a !important;
+  border: 1px solid rgba(15, 23, 42, 0.08) !important;
+  backdrop-filter: blur(8px) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
+}
+.leaflet-popup-tip {
+  background: rgba(255, 255, 255, 0.98) !important;
+}
+
+/* Animated gradient backgrounds for key actions */
+.glowing-bg {
+  background: linear-gradient(135deg, #4f46e5, #3b82f6);
+  box-shadow: 0 4px 20px 0 rgba(79, 70, 229, 0.2);
+}
+.glowing-bg:hover {
+  box-shadow: 0 6px 24px 0 rgba(79, 70, 229, 0.35);
+}
+
+/* ==========================================================================
+   HIGH-PERFORMANCE ULTRA PREMIUM LIGHT MODE CSS OVERRIDES
+   Injects high contrast and pristine look over all components automatically
+   ========================================================================== */
+.light {
+  background-color: #ffffff !important;
+}
+
+/* Force dark-neutral classes to transition seamlessly into premium light elements */
+.light body {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+
+.light .bg-\[\#0b0f19\] {
+  background-color: #ffffff !important;
+}
+
+/* Premium Card Panels (Stripe/Tailwind UI Aesthetics) */
+.light .glass-panel {
+  background-color: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  box-shadow: 0 1px 3px 0 rgba(15, 23, 42, 0.03), 0 1px 2px -1px rgba(15, 23, 42, 0.03), 0 4px 6px -1px rgba(15, 23, 42, 0.05) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* Headings & Text Color Overrides */
+.light h1, .light h2, .light h3, .light h4, .light h5, .light h6, 
+.light .text-white, .light .font-bold.text-white {
+  color: #0f172a !important;
+}
+
+.light .text-gray-400 {
+  color: #475569 !important; /* Slate 600 */
+}
+
+.light .text-gray-500 {
+  color: #64748b !important; /* Slate 500 */
+}
+
+.light .text-indigo-400 {
+  color: #4f46e5 !important; /* Premium Indigo */
+}
+
+/* Neutralize Tailwind dark-mode overrides inside light elements */
+.light .dark\:text-white {
+  color: #0f172a !important; /* Slate 900 */
+}
+.light .dark\:text-gray-400 {
+  color: #475569 !important; /* Slate 600 */
+}
+.light .dark\:text-indigo-400 {
+  color: #4f46e5 !important; /* Premium Indigo */
+}
+.light .dark\:text-indigo-350 {
+  color: #4f46e5 !important;
+}
+.light .dark\:text-rose-400 {
+  color: #be123c !important;
+}
+
+
+/* Border Overrides */
+.light .border-gray-800, .light .border-gray-800\/50, .light .border-gray-800\/80 {
+  border-color: rgba(15, 23, 42, 0.08) !important;
+}
+
+/* Card Capsule Lists */
+.light .bg-gray-800\/20 {
+  background-color: rgba(15, 23, 42, 0.03) !important;
+  border-color: rgba(15, 23, 42, 0.06) !important;
+}
+
+/* Table Headings & Grid Optimization */
+.light thead tr, .light .bg-gray-900\/60 {
+  background-color: #f8fafc !important;
+  border-bottom: 1px solid #e2e8f0 !important;
+}
+
+.light tbody tr:hover {
+  background-color: rgba(79, 70, 229, 0.03) !important;
+}
+
+/* Dropdown / Select Option Overrides */
+.light select, .light input {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: rgba(15, 23, 42, 0.12) !important;
+}
+
+.light select:focus, .light input:focus {
+  border-color: #4f46e5 !important;
+  outline: none;
+}
+
+/* Navigation items hover states */
+.light nav a:not(.bg-indigo-600) {
+  color: #475569 !important;
+}
+
+.light nav a:not(.bg-indigo-600):hover {
+  background-color: rgba(79, 70, 229, 0.06) !important;
+  color: #4f46e5 !important;
+}
+
+/* Tab indicator bottom borders */
+.light button[class*="text-gray-500"]:hover {
+  color: #0f172a !important;
+}
+
+/* ==========================================================================
+   EXCLUSIVE SCOPES FOR HYBRID DARK SIDEBAR IN LIGHT THEME
+   Restores absolute contrast of the left menu on the dark blue background
+   ========================================================================== */
+.light aside {
+  background-color: #0b0f19 !important;
+  border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+.light aside .text-white, 
+.light aside .font-bold.text-white {
+  color: #ffffff !important;
+}
+
+.light aside .text-gray-400 {
+  color: #9ca3af !important;
+}
+
+.light aside .text-gray-500 {
+  color: #6b7280 !important;
+}
+
+.light aside nav a:not(.bg-indigo-600) {
+  color: #9ca3af !important;
+}
+
+.light aside nav a:not(.bg-indigo-600):hover {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+  color: #ffffff !important;
+}
+
+.light aside nav a.bg-indigo-600 {
+  color: #ffffff !important;
+}
+
+.light aside .border-b, 
+.light aside .border-t, 
+.light aside .border-gray-800, 
+.light aside .border-gray-800\/50, 
+.light aside .border-gray-800\/80 {
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* ==========================================================================
+   PASTEL TEXT CONTRAST REMAPPING (LOG TABLES & DYNAMIC CHECKBOX LABELS)
+   Remaps washed-out colors to deep, high-contrast values for light page body
+   ========================================================================== */
+.light .text-gray-300 {
+  color: #334155 !important; /* Slate 700 - makes checkbox labels highly visible! */
+}
+
+.light .text-red-300 {
+  color: #b91c1c !important; /* High contrast dark red */
+}
+
+.light .text-rose-400 {
+  color: #be123c !important; /* High contrast dark rose */
+}
+
+.light .text-sky-400 {
+  color: #0369a1 !important; /* High contrast dark sky-blue */
+}
+
+.light .text-blue-400 {
+  color: #1d4ed8 !important; /* High contrast dark blue */
+}
+
+.light .text-blue-500 {
+  color: #1e3a8a !important; /* High contrast deep navy */
+}
+
+.light .text-emerald-300, 
+.light .text-emerald-400 {
+  color: #047857 !important; /* High contrast dark emerald */
+}
+
+.light .text-amber-400, 
+.light .text-amber-500 {
+  color: #b45309 !important; /* High contrast dark amber */
+}
+
+.light .text-pink-400 {
+  color: #be185d !important; /* High contrast dark pink */
+}
+
+.light .text-purple-400 {
+  color: #6d28d9 !important; /* High contrast dark purple */
+}
+
+
+

@@ -1,0 +1,37 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: ff-dashboard-redis
+    restart: always
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    command:
+      [
+        "redis-server",
+        "--appendonly",
+        "yes",
+        "--maxmemory",
+        "256mb",
+        "--maxmemory-policy",
+        "allkeys-lru",
+        "--requirepass",
+        "$REDIS_PASSWORD",
+        "--user",
+        "$REDIS_USER",
+        "on",
+        ">$REDIS_PASSWORD",
+        "~*",
+        "+@all",
+      ]
+    networks:
+      - dashboard-network
+
+volumes:
+  redis_data:
+
+networks:
+  dashboard-network:
+    name: ff-dashboard-network
+    driver: bridge
