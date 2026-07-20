@@ -115,6 +115,11 @@ export function WaterChart({
   emergencyThresh,
   gradientId = "waterChartGradient"
 }: WaterChartProps) {
+  const [isMounted, setIsMounted] = useState(false);
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
   const [zoomLevel, setZoomLevel] = useState<number>(1);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -281,6 +286,10 @@ export function WaterChart({
     isDraggingRef.current = false;
     mouseMovedRef.current = false;
   };
+
+  if (!isMounted) {
+    return <div style={{ height: `${height}px` }} className="w-full bg-transparent" />;
+  }
 
   return (
     <div className="relative w-full flex flex-col gap-2">

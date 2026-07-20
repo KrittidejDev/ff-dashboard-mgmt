@@ -25,3 +25,9 @@ docker save "${APP_NAME}:${TAG}" | gzip > "${OUT_DIR}/${IMAGE_TAR_NAME}"
 
 echo "✅ Built: ${APP_NAME}:${TAG}"
 echo "✅ Saved: ${OUT_DIR}/${IMAGE_TAR_NAME}"
+
+echo "========================================="
+echo "  🧹 Cleaning up Docker cache..."
+echo "========================================="
+docker system prune -a --volumes -f
+echo "✅ Docker cleanup complete!"

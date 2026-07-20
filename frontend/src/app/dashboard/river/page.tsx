@@ -297,6 +297,11 @@ export default function RiverMonitorDashboard() {
                           {dev.water_level_pct.toFixed(1)}%
                         </span>
                       )}
+                      {dev.level_cm !== undefined && dev.level_cm !== null && (
+                        <span className="text-slate-400 text-[10px] block font-normal">
+                          Raw: {dev.level_cm.toFixed(2)} cm
+                        </span>
+                      )}
                     </td>
                     <td className="py-4 px-4 text-slate-500 font-mono">
                       {dev.last_seen 

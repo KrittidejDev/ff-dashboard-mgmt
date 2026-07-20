@@ -63,7 +63,6 @@ func (r *pgRiverRepository) GetOfficialPages(ctx context.Context) ([]*domain.Riv
 	return pages, nil
 }
 
-
 func (r *pgRiverRepository) CreateOfficialPage(ctx context.Context, page *domain.RiverOfficialPage) error {
 	dbCtx, cancel := r.getCtx(ctx)
 	defer cancel()
@@ -990,7 +989,6 @@ func (r *pgRiverRepository) GetDQSummary(ctx context.Context) (map[string]interf
 	return summary, nil
 }
 
-
 // ── Settings ────────────────────────────────────────────────────────────────
 
 func (r *pgRiverRepository) GetSettingByKey(ctx context.Context, key string) (*domain.Setting, error) {
@@ -1044,6 +1042,7 @@ func (r *pgRiverRepository) GetLatestCurrentGroup(ctx context.Context, serial st
 	g := &domain.CurrentGroup{}
 	var freqDefJSON []byte
 	var freqRespJSON []byte
+	var netWaterCM, waterPct *float64
 
 	query := `
 		SELECT serial, session, common_site_name, latitude, longitude, timestamp_utc, local_time_on_site, 
@@ -1057,8 +1056,10 @@ func (r *pgRiverRepository) GetLatestCurrentGroup(ctx context.Context, serial st
 		&g.Serial, &g.Session, &g.CommonSiteName, &g.Latitude, &g.Longitude, &g.TimestampUTC, &g.LocalTimeOnSite,
 		&g.TimeZone, &g.TimeZoneOffsetSec, &g.LastPingLatitude, &g.LastPingLongitude,
 		&g.LevelCM, &g.SnapshotURL0, &g.SnapshotURL1, &g.SnapshotURL2, &g.DeepCM, &g.Cost,
-		&freqDefJSON, &freqRespJSON, &g.DurationSec, &g.NetWaterLevelCM, &g.WaterLevelPct, &g.UpdatedAt,
+		&freqDefJSON, &freqRespJSON, &g.DurationSec, &netWaterCM, &waterPct, &g.UpdatedAt,
 	)
+	g.NetWaterLevelCM = netWaterCM
+	g.WaterLevelPct = waterPct
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errors.New("no current data for device")
 	}
@@ -1080,7 +1081,7 @@ func (r *pgRiverRepository) GetHistoricalStats(ctx context.Context, serial strin
 	var err error
 
 	diff := end.Sub(start)
-	if diff > 15 * 24 * time.Hour { // e.g. 30 days
+	if diff > 15*24*time.Hour { // e.g. 30 days
 		query = `
 			SELECT time_bucket('1 hour', time) AS bucket_time, serial, MAX(session), MAX(common_site_name), 
 			       AVG(latitude), AVG(longitude), time_bucket('1 hour', local_time_on_site) AS local_time, 
@@ -1092,7 +1093,7 @@ func (r *pgRiverRepository) GetHistoricalStats(ctx context.Context, serial strin
 			ORDER BY bucket_time ASC
 		`
 		rows, err = r.pool.Query(dbCtx, query, serial, start, end)
-	} else if diff > 48 * time.Hour { // e.g. 7 days
+	} else if diff > 48*time.Hour { // e.g. 7 days
 		query = `
 			SELECT time_bucket('15 minutes', time) AS bucket_time, serial, MAX(session), MAX(common_site_name), 
 			       AVG(latitude), AVG(longitude), time_bucket('15 minutes', local_time_on_site) AS local_time, 

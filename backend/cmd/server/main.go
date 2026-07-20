@@ -132,7 +132,7 @@ func main() {
 	wsHandler := http.NewWebSocketHandler(rdb, l)
 	riverRepo := database.NewRiverRepository(riverPool)
 	streamClient := external.NewStreamClient(cfg)
-	riverHandler := http.NewRiverHandler(riverRepo, riverRdb, streamClient, l)
+	riverHandler := http.NewRiverHandler(riverRepo, riverRdb, streamClient, l, cfg.RiverServiceURL)
 
 	// 7. Fiber App Setup
 	app := fiber.New(fiber.Config{
@@ -240,6 +240,7 @@ func main() {
 	riverGroup.Delete("/devices/:serial", riverHandler.DeleteDevice)
 	riverGroup.Post("/devices/:serial/stream", riverHandler.InitializeStream)
 	riverGroup.Delete("/devices/:serial/stream", riverHandler.TerminateStream)
+	riverGroup.Post("/devices/:serial/ptz", riverHandler.ControlPTZ)
 	riverGroup.Get("/unregistered-serials", riverHandler.GetUnregisteredSerials)
 	riverGroup.Get("/unregistered-devices", riverHandler.GetUnregisteredDevices)
 

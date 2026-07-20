@@ -226,7 +226,7 @@ export default function RiverOfficialPagesPage() {
           <span>Mueangsmart Integration Architecture</span>
         </h4>
         <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
-          Binding a <strong>Municipality ID</strong> (UUID) maps requests authorized by Mueangsmart Client Keys/Web Headers directly to the matched <strong>Official Page Code</strong>. This isolates device telemetry data correctly at the <code>ff-river-service</code> usecase layer.
+          Binding a <strong>Municipality ID</strong> maps requests authorized by Mueangsmart Client Keys/Web Headers directly to the matched <strong>Official Page Code</strong>. This isolates device telemetry data correctly at the <code>ff-river-service</code> usecase layer.
         </p>
       </div>
 
@@ -237,7 +237,7 @@ export default function RiverOfficialPagesPage() {
               <tr className="bg-slate-50 text-slate-500 border-b border-slate-200 uppercase tracking-wider font-semibold">
                 <th className="py-4 px-5">Page Name</th>
                 <th className="py-4 px-5">Page Code</th>
-                <th className="py-4 px-5">Linked Municipality ID (UUID)</th>
+                <th className="py-4 px-5">Linked Municipality ID</th>
                 <th className="py-4 px-5">Description</th>
                 <th className="py-4 px-5 text-right">Actions</th>
               </tr>
@@ -384,13 +384,13 @@ export default function RiverOfficialPagesPage() {
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-xs text-slate-600 font-bold block">Municipality UUID (รหัส UUID ของเมือง)</label>
+                  <label className="text-xs text-slate-600 font-bold block">Municipality ID (รหัสอ้างอิงเมือง)</label>
                   <input
                     type="text"
                     value={pageForm.municipality_id}
                     onChange={(e) => setPageForm({ ...pageForm, municipality_id: e.target.value })}
-                    placeholder="e.g. 861dc6a4-f4d3-431f-9b48-6726532bcf82"
-                    className="w-full bg-white border border-slate-200 rounded-xl py-2.5 px-3.5 text-sm text-slate-800 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100/40 font-mono"
+                    placeholder="e.g. chonburi หรือ 861dc6a4-f4d3-431f-9b48-6726532bcf82"
+                    className="w-full bg-white border border-slate-200 rounded-xl py-2.5 px-3.5 text-sm text-slate-800 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100/40"
                   />
                 </div>
               </div>
@@ -432,14 +432,14 @@ export default function RiverOfficialPagesPage() {
             <div className="flex justify-between items-center border-b border-slate-100 pb-3">
               <h3 className="text-slate-900 font-extrabold text-base flex items-center space-x-2">
                 <Link2 className="w-5 h-5 text-indigo-600" />
-                <span>Pair Municipality UUID</span>
+                <span>Pair Municipality ID</span>
               </h3>
               <button onClick={() => setShowLinkModal(false)} className="text-slate-400 hover:text-slate-650"><X className="w-5 h-5" /></button>
             </div>
 
             <div className="text-xs text-slate-500 bg-slate-50 border border-slate-200 p-3.5 rounded-xl space-y-1">
               <p><strong>Page:</strong> {linkingPage?.name} (code: {linkingPage?.code})</p>
-              <p className="mt-1">Enter the Mueangsmart Municipality UUID. You can unlink it later anytime.</p>
+              <p className="mt-1">Enter the Mueangsmart Municipality ID. You can unlink it later anytime.</p>
             </div>
 
             {formError && (
@@ -450,13 +450,13 @@ export default function RiverOfficialPagesPage() {
 
             <form onSubmit={handleLinkSubmit} className="space-y-4">
               <div className="space-y-1">
-                <label className="text-xs text-slate-600 font-bold block">Municipality UUID</label>
+                <label className="text-xs text-slate-600 font-bold block">Municipality ID</label>
                 <input
                   type="text"
                   value={municipalityIdInput}
                   onChange={(e) => setMunicipalityIdInput(e.target.value)}
-                  placeholder="e.g. 123e4567-e89b-12d3-a456-426614174000"
-                  className="w-full bg-white border border-slate-200 rounded-xl py-2.5 px-3.5 text-sm text-slate-800 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100/40 font-mono"
+                  placeholder="e.g. chonburi หรือ 123e4567-e89b-12d3-a456-426614174000"
+                  className="w-full bg-white border border-slate-200 rounded-xl py-2.5 px-3.5 text-sm text-slate-800 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100/40"
                 />
               </div>
 

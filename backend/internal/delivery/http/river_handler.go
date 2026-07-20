@@ -1,13 +1,17 @@
 package http
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"io"
 	"math"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -23,20 +27,22 @@ import (
 )
 
 type RiverHandler struct {
-	repo         domain.RiverRepository
-	rdb          *redis.Client
-	validate     *validator.Validate
-	logger       *zap.Logger
-	streamClient *external.StreamClient
+	repo             domain.RiverRepository
+	rdb              *redis.Client
+	validate         *validator.Validate
+	logger           *zap.Logger
+	streamClient     *external.StreamClient
+	riverServiceURL  string // base URL of ff-river-service (e.g. http://10.1.2.19:8081)
 }
 
-func NewRiverHandler(repo domain.RiverRepository, rdb *redis.Client, sc *external.StreamClient, logger *zap.Logger) *RiverHandler {
+func NewRiverHandler(repo domain.RiverRepository, rdb *redis.Client, sc *external.StreamClient, logger *zap.Logger, riverServiceURL string) *RiverHandler {
 	return &RiverHandler{
-		repo:         repo,
-		rdb:          rdb,
-		validate:     validator.New(),
-		logger:       logger,
-		streamClient: sc,
+		repo:            repo,
+		rdb:             rdb,
+		validate:        validator.New(),
+		logger:          logger,
+		streamClient:    sc,
+		riverServiceURL: riverServiceURL,
 	}
 }
 
@@ -358,9 +364,26 @@ func (h *RiverHandler) GetDeviceCalcConfig(c fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "serial is required"})
 	}
 
-	cfg, err := h.repo.GetDeviceCalcConfig(c.Context(), serial)
+	url := fmt.Sprintf("%s/api/v1/devices/%s/calc-config", h.riverServiceURL, serial)
+	req, err := http.NewRequestWithContext(c.Context(), http.MethodGet, url, nil)
 	if err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": err.Error()})
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to build request to river service"})
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{"error": "failed to contact river service"})
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return c.Status(resp.StatusCode).Send(bodyBytes)
+	}
+
+	var cfg domain.DeviceCalcConfig
+	if err := json.NewDecoder(resp.Body).Decode(&cfg); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to decode response"})
 	}
 	return c.JSON(cfg)
 }
@@ -371,14 +394,23 @@ func (h *RiverHandler) SaveDeviceCalcConfig(c fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "serial is required"})
 	}
 
-	cfg := &domain.DeviceCalcConfig{}
-	if err := c.Bind().JSON(cfg); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request body"})
+	bodyBytes := c.Body()
+	url := fmt.Sprintf("%s/api/v1/devices/%s/calc-config", h.riverServiceURL, serial)
+	req, err := http.NewRequestWithContext(c.Context(), http.MethodPost, url, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to build request to river service"})
 	}
-	cfg.Serial = serial
+	req.Header.Set("Content-Type", "application/json")
 
-	if err := h.repo.SaveDeviceCalcConfig(c.Context(), cfg); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{"error": "failed to contact river service"})
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		respBodyBytes, _ := io.ReadAll(resp.Body)
+		return c.Status(resp.StatusCode).Send(respBodyBytes)
 	}
 
 	// 1. Evict configuration from Redis cache immediately
@@ -396,36 +428,41 @@ func (h *RiverHandler) SaveDeviceCalcConfig(c fiber.Ctx) error {
 	// 2. Perform immediate recalculation on the latest telemetry point
 	latest, err := h.repo.GetLatestCurrentGroup(c.Context(), serial)
 	if err == nil {
-		if cfg.BottomToBankCM > 0 {
-			netCM := cfg.BottomToBankCM - (latest.LevelCM - cfg.BankToSensorCM)
-			if netCM < 0 {
-				netCM = 0
-			}
-			pct := (netCM / cfg.BottomToBankCM) * 100.0
-
-			// Round to 2 decimal places for storage consistency
-			netCM = math.Round(netCM*100) / 100
-			pct = math.Round(pct*100) / 100
-
-			// Update the database
-			_ = h.repo.UpdateWaterLevel(c.Context(), serial, netCM, pct)
-
-			// Trigger immediate alert evaluation in workers
-			if h.rdb != nil {
-				alertEv := map[string]interface{}{
-					"serial":             serial,
-					"net_water_level_cm": netCM,
-					"water_level_pct":    pct,
-					"timestamp":          latest.LocalTimeOnSite,
+		var cfg domain.DeviceCalcConfig
+		if err := json.Unmarshal(bodyBytes, &cfg); err == nil {
+			if cfg.BottomToBankCM > 0 {
+				netCM := cfg.BottomToBankCM - (latest.LevelCM - cfg.BankToSensorCM)
+				if netCM < 0 {
+					netCM = 0
 				}
-				if jsonBytes, err := json.Marshal(alertEv); err == nil {
-					_ = h.rdb.Publish(c.Context(), "ff:river:calc_done", string(jsonBytes)).Err()
+				pct := (netCM / cfg.BottomToBankCM) * 100.0
+
+				// Round to 2 decimal places for storage consistency
+				netCM = math.Round(netCM*100) / 100
+				pct = math.Round(pct*100) / 100
+
+				// Update the database
+				_ = h.repo.UpdateWaterLevel(c.Context(), serial, netCM, pct)
+
+				// Trigger immediate alert evaluation in workers
+				if h.rdb != nil {
+					alertEv := map[string]interface{}{
+						"serial":             serial,
+						"net_water_level_cm": netCM,
+						"water_level_pct":    pct,
+						"timestamp":          latest.LocalTimeOnSite,
+					}
+					if jsonBytes, err := json.Marshal(alertEv); err == nil {
+						_ = h.rdb.Publish(c.Context(), "ff:river:calc_done", string(jsonBytes)).Err()
+					}
 				}
 			}
 		}
 	}
 
-	return c.JSON(cfg)
+	var retCfg domain.DeviceCalcConfig
+	_ = json.Unmarshal(bodyBytes, &retCfg)
+	return c.JSON(retCfg)
 }
 
 // ── Alert Thresholds Handlers ────────────────────────────────────────────────
@@ -936,4 +973,56 @@ func (h *RiverHandler) TerminateStream(c fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{"message": "stream terminated successfully"})
+}
+
+// ptzProxyClient is a shared HTTP client for proxying PTZ requests to ff-river-service.
+// Timeout is intentionally short — PTZ is a real-time command.
+var ptzProxyClient = &http.Client{
+	Timeout: 6 * time.Second,
+	Transport: &http.Transport{
+		MaxIdleConns:        50,
+		MaxIdleConnsPerHost: 10,
+		IdleConnTimeout:     90 * time.Second,
+	},
+}
+
+// ControlPTZ is a thin proxy — it forwards the PTZ request to ff-river-service
+// which owns the camera credentials and ISAPI logic.
+// Route: POST /api/v1/river/devices/:serial/ptz
+func (h *RiverHandler) ControlPTZ(c fiber.Ctx) error {
+	serial := c.Params("serial")
+	if serial == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "serial is required"})
+	}
+
+	// Read raw body once and forward as-is to preserve the exact JSON payload
+	body := c.Body()
+	if len(body) == 0 {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "request body is required"})
+	}
+
+	targetURL := fmt.Sprintf("%s/api/v1/devices/%s/ptz", h.riverServiceURL, serial)
+
+	req, err := http.NewRequestWithContext(c.Context(), http.MethodPost, targetURL, bytes.NewReader(body))
+	if err != nil {
+		h.logger.Error("PTZ proxy: build request failed", zap.String("serial", serial), zap.Error(err))
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to build proxy request"})
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := ptzProxyClient.Do(req)
+	if err != nil {
+		h.logger.Error("PTZ proxy: upstream request failed", zap.String("serial", serial), zap.Error(err))
+		return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{"error": "upstream PTZ service unavailable: " + err.Error()})
+	}
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+	}()
+
+	// Stream upstream status code + body back to caller
+	c.Status(resp.StatusCode)
+	c.Set("Content-Type", "application/json")
+	_, _ = io.Copy(c.Response().BodyWriter(), resp.Body)
+	return nil
 }

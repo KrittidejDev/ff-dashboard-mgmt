@@ -18,56 +18,56 @@ type RiverOfficialPage struct {
 
 // RiverDevice represents river_device in database
 type RiverDevice struct {
-	ID               int       `json:"id"`
-	Serial           string    `json:"serial" validate:"required,max=50"`
-	OfficialPageID   *int      `json:"official_page_id"`
-	Name             string    `json:"name" validate:"required,min=3,max=100"`
-	Status           string    `json:"status" validate:"required,oneof=ACTIVE INACTIVE MAINTENANCE"` // ACTIVE, INACTIVE, MAINTENANCE
-	Description      string    `json:"description" validate:"max=500"`
-	OwnerEmail       string    `json:"owner_email"`
-	OwnerID          string    `json:"owner_id"`
-	InstallLatitude  string    `json:"install_latitude"`
-	InstallLongitude string    `json:"install_longitude"`
-	OrganizationName string    `json:"organization_name"`
-	CCTVPath0        string    `json:"cctv_path_0"`
-	CCTVPath1        string    `json:"cctv_path_1"`
-	CCTVPath2        string    `json:"cctv_path_2"`
-	LevelCM          *float64  `json:"level_cm,omitempty"`
-	NetWaterLevelCM  *float64  `json:"net_water_level_cm,omitempty"`
-	WaterLevelPct    *float64  `json:"water_level_pct,omitempty"`
-	CreatedAt        time.Time `json:"created_at"`
-	UpdatedAt        time.Time `json:"updated_at"`
-	WarningStatus    string     `json:"warning_status,omitempty"`
-	LastSeen         *time.Time `json:"last_seen,omitempty"`
-	OfflineThresholdMin *int    `json:"offline_threshold_min,omitempty"`
-	BottomToBankCM      *float64  `json:"bottom_to_bank_cm,omitempty"`
+	ID                  int        `json:"id"`
+	Serial              string     `json:"serial" validate:"required,max=50"`
+	OfficialPageID      *int       `json:"official_page_id"`
+	Name                string     `json:"name" validate:"required,min=3,max=100"`
+	Status              string     `json:"status" validate:"required,oneof=ACTIVE INACTIVE MAINTENANCE"` // ACTIVE, INACTIVE, MAINTENANCE
+	Description         string     `json:"description" validate:"max=500"`
+	OwnerEmail          string     `json:"owner_email"`
+	OwnerID             string     `json:"owner_id"`
+	InstallLatitude     string     `json:"install_latitude"`
+	InstallLongitude    string     `json:"install_longitude"`
+	OrganizationName    string     `json:"organization_name"`
+	CCTVPath0           string     `json:"cctv_path_0"`
+	CCTVPath1           string     `json:"cctv_path_1"`
+	CCTVPath2           string     `json:"cctv_path_2"`
+	LevelCM             *float64   `json:"level_cm,omitempty"`
+	NetWaterLevelCM     *float64   `json:"net_water_level_cm,omitempty"`
+	WaterLevelPct       *float64   `json:"water_level_pct,omitempty"`
+	CreatedAt           time.Time  `json:"created_at"`
+	UpdatedAt           time.Time  `json:"updated_at"`
+	WarningStatus       string     `json:"warning_status,omitempty"`
+	LastSeen            *time.Time `json:"last_seen,omitempty"`
+	OfflineThresholdMin *int       `json:"offline_threshold_min,omitempty"`
+	BottomToBankCM      *float64   `json:"bottom_to_bank_cm,omitempty"`
 }
 
 // CurrentGroup represents river_current_group in database
 type CurrentGroup struct {
-	Serial              string                 `json:"serial"`
-	Session             string                 `json:"session"`
-	CommonSiteName      string                 `json:"common_site_name"`
-	Latitude            float64                `json:"latitude"`
-	Longitude           float64                `json:"longitude"`
-	TimestampUTC        int64                  `json:"timestamp_utc"`
-	LocalTimeOnSite     time.Time              `json:"local_time_on_site"`
-	TimeZone            string                 `json:"time_zone"`
-	TimeZoneOffsetSec   int                    `json:"time_zone_offset_in_sec"`
-	LastPingLatitude    float64                `json:"last_ping_latitude"`
-	LastPingLongitude   float64                `json:"last_ping_longitude"`
-	LevelCM             float64                `json:"level_cm"`
-	SnapshotURL0        string                 `json:"snapshot_url0"`
-	SnapshotURL1        string                 `json:"snapshot_url1"`
-	SnapshotURL2        string                 `json:"snapshot_url2"`
-	DeepCM              float64                `json:"deep_cm"`
-	Cost                float64                `json:"cost"`
-	FrequencyDefine     map[string]interface{} `json:"frequency_define"`
-	FrequencyResponse   map[string]interface{} `json:"frequency_response"`
-	DurationSec         int                    `json:"duration_sec"`
-	NetWaterLevelCM     float64                `json:"net_water_level_cm"`
-	WaterLevelPct       float64                `json:"water_level_pct"`
-	UpdatedAt           time.Time              `json:"updated_at"`
+	Serial            string                 `json:"serial"`
+	Session           string                 `json:"session"`
+	CommonSiteName    string                 `json:"common_site_name"`
+	Latitude          float64                `json:"latitude"`
+	Longitude         float64                `json:"longitude"`
+	TimestampUTC      int64                  `json:"timestamp_utc"`
+	LocalTimeOnSite   time.Time              `json:"local_time_on_site"`
+	TimeZone          string                 `json:"time_zone"`
+	TimeZoneOffsetSec int                    `json:"time_zone_offset_in_sec"`
+	LastPingLatitude  float64                `json:"last_ping_latitude"`
+	LastPingLongitude float64                `json:"last_ping_longitude"`
+	LevelCM           float64                `json:"level_cm"`
+	SnapshotURL0      string                 `json:"snapshot_url0"`
+	SnapshotURL1      string                 `json:"snapshot_url1"`
+	SnapshotURL2      string                 `json:"snapshot_url2"`
+	DeepCM            float64                `json:"deep_cm"`
+	Cost              float64                `json:"cost"`
+	FrequencyDefine   map[string]interface{} `json:"frequency_define"`
+	FrequencyResponse map[string]interface{} `json:"frequency_response"`
+	DurationSec       int                    `json:"duration_sec"`
+	NetWaterLevelCM   *float64               `json:"net_water_level_cm"`
+	WaterLevelPct     *float64               `json:"water_level_pct"`
+	UpdatedAt         time.Time              `json:"updated_at"`
 }
 
 // CurrentStat represents river_current_stat in database
@@ -85,8 +85,8 @@ type CurrentStat struct {
 	SnapshotURL2      string                 `json:"snapshot_url2"`
 	FrequencyDefine   map[string]interface{} `json:"frequency_define"`
 	FrequencyResponse map[string]interface{} `json:"frequency_response"`
-	NetWaterLevelCM   float64                `json:"net_water_level_cm"`
-	WaterLevelPct     float64                `json:"water_level_pct"`
+	NetWaterLevelCM   *float64               `json:"net_water_level_cm"`
+	WaterLevelPct     *float64               `json:"water_level_pct"`
 	CreatedAt         time.Time              `json:"created_at"`
 }
 
