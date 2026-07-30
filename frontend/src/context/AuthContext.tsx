@@ -129,7 +129,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (token) {
       headers.set('Authorization', `Bearer ${token}`);
     }
-    return fetch(url, { ...options, headers });
+
+    const fetchWithTimeout = async (attempt = 0): Promise<Response> => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000); // 8s timeout
+
+      try {
+        const res = await fetch(url, {
+          ...options,
+          headers,
+          signal: options.signal || controller.signal,
+        });
+        clearTimeout(timeoutId);
+        return res;
+      } catch (err: any) {
+        clearTimeout(timeoutId);
+        if (attempt < 1 && (err.name === 'AbortError' || err.name === 'TypeError')) {
+          // Retry once on timeout or network drop
+          return fetchWithTimeout(attempt + 1);
+        }
+        throw err;
+      }
+    };
+
+    return fetchWithTimeout();
   };
 
   return (

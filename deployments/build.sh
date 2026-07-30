@@ -40,16 +40,40 @@ build_frontend() {
     echo ""
 }
 
+cleanup_caches() {
+    echo -e "${YELLOW}=========================================${NC}"
+    echo -e "${YELLOW}  🧹 Clearing Go Build Cache & Docker System Prune...${NC}"
+    echo -e "${YELLOW}=========================================${NC}"
+    
+    # 1. Clear Go build cache (if go binary exists)
+    if command -v go &> /dev/null; then
+        go clean -cache -modcache || true
+        echo -e "${GREEN}  - Cleared Go build & module cache${NC}"
+    fi
+
+    # 2. Clear Docker system cache, dangling images, and volumes
+    if command -v docker &> /dev/null; then
+        docker system prune -a --volumes -f || true
+        echo -e "${GREEN}  - Executed docker system prune -a --volumes -f${NC}"
+    fi
+
+    echo -e "${GREEN}✅ Cleaned up all build & Docker caches!${NC}"
+    echo ""
+}
+
 case "$PROJECT" in
     all)
         build_backend
         build_frontend
+        cleanup_caches
         ;;
     backend)
         build_backend
+        cleanup_caches
         ;;
     frontend)
         build_frontend
+        cleanup_caches
         ;;
     *)
         echo -e "${RED}Usage: $0 [backend|frontend]${NC}"

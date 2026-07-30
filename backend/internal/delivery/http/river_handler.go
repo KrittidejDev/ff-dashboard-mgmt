@@ -193,18 +193,31 @@ func (h *RiverHandler) GetDevices(c fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	for _, dev := range devices {
-		if h.rdb != nil {
-			alertKey := "ff:river:active_alert:" + dev.Serial
-			if val, err := h.rdb.Get(c.Context(), alertKey).Result(); err == nil && val != "" {
-				if len(val) >= 2 && val[0] == '"' && val[len(val)-1] == '"' {
-					val = val[1 : len(val)-1]
+	if len(devices) > 0 && h.rdb != nil {
+		keys := make([]string, len(devices))
+		for i, dev := range devices {
+			keys[i] = "ff:river:active_alert:" + dev.Serial
+		}
+
+		vals, err := h.rdb.MGet(c.Context(), keys...).Result()
+		if err == nil {
+			for i, val := range vals {
+				if valStr, ok := val.(string); ok && valStr != "" {
+					if len(valStr) >= 2 && valStr[0] == '"' && valStr[len(valStr)-1] == '"' {
+						valStr = valStr[1 : len(valStr)-1]
+					}
+					devices[i].WarningStatus = valStr
+				} else {
+					devices[i].WarningStatus = "NORMAL"
 				}
-				dev.WarningStatus = val
-			} else {
-				dev.WarningStatus = "NORMAL"
 			}
 		} else {
+			for _, dev := range devices {
+				dev.WarningStatus = "NORMAL"
+			}
+		}
+	} else {
+		for _, dev := range devices {
 			dev.WarningStatus = "NORMAL"
 		}
 	}

@@ -35,21 +35,24 @@ export default function RiverMonitorDashboard() {
   const fetchDevices = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await apiFetch(`${API_BASE_URL}/river/devices`);
-      if (res.ok) {
-        const data = await res.json();
+      const [devRes, unregRes, unregDevicesRes] = await Promise.allSettled([
+        apiFetch(`${API_BASE_URL}/river/devices`),
+        apiFetch(`${API_BASE_URL}/river/unregistered-serials`),
+        apiFetch(`${API_BASE_URL}/river/unregistered-devices`)
+      ]);
+
+      if (devRes.status === 'fulfilled' && devRes.value.ok) {
+        const data = await devRes.value.json();
         setDevices(data || []);
       }
-      
-      const unregRes = await apiFetch(`${API_BASE_URL}/river/unregistered-serials`);
-      if (unregRes.ok) {
-        const data = await unregRes.json();
+
+      if (unregRes.status === 'fulfilled' && unregRes.value.ok) {
+        const data = await unregRes.value.json();
         setUnregisteredCount(data ? data.length : 0);
       }
 
-      const unregDevicesRes = await apiFetch(`${API_BASE_URL}/river/unregistered-devices`);
-      if (unregDevicesRes.ok) {
-        const data = await unregDevicesRes.json();
+      if (unregDevicesRes.status === 'fulfilled' && unregDevicesRes.value.ok) {
+        const data = await unregDevicesRes.value.json();
         setUnregisteredDevices(data || []);
       }
 

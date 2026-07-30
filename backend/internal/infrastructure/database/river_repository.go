@@ -1083,10 +1083,10 @@ func (r *pgRiverRepository) GetHistoricalStats(ctx context.Context, serial strin
 	diff := end.Sub(start)
 	if diff > 15*24*time.Hour { // e.g. 30 days
 		query = `
-			SELECT time_bucket('1 hour', time) AS bucket_time, serial, MAX(session), MAX(common_site_name), 
-			       AVG(latitude), AVG(longitude), time_bucket('1 hour', local_time_on_site) AS local_time, 
+			SELECT time_bucket('1 hour', time) AS bucket_time, serial, COALESCE(MAX(session), ''), COALESCE(MAX(common_site_name), ''), 
+			       COALESCE(AVG(latitude), 0), COALESCE(AVG(longitude), 0), MAX(local_time_on_site) AS local_time, 
 			       COALESCE(AVG(level_cm), 0), COALESCE(MAX(snapshot_url0), ''), COALESCE(MAX(snapshot_url1), ''), COALESCE(MAX(snapshot_url2), ''), 
-			       NULL::jsonb, NULL::jsonb, COALESCE(AVG(net_water_level_cm), 0), COALESCE(AVG(water_level_pct), 0), MAX(created_at)
+			       NULL::jsonb, NULL::jsonb, COALESCE(AVG(net_water_level_cm), 0), COALESCE(AVG(water_level_pct), 0), COALESCE(MAX(created_at), NOW())
 			FROM river_current_stat 
 			WHERE serial = $1 AND time BETWEEN $2 AND $3 
 			GROUP BY bucket_time, serial 
@@ -1095,10 +1095,10 @@ func (r *pgRiverRepository) GetHistoricalStats(ctx context.Context, serial strin
 		rows, err = r.pool.Query(dbCtx, query, serial, start, end)
 	} else if diff > 48*time.Hour { // e.g. 7 days
 		query = `
-			SELECT time_bucket('15 minutes', time) AS bucket_time, serial, MAX(session), MAX(common_site_name), 
-			       AVG(latitude), AVG(longitude), time_bucket('15 minutes', local_time_on_site) AS local_time, 
+			SELECT time_bucket('15 minutes', time) AS bucket_time, serial, COALESCE(MAX(session), ''), COALESCE(MAX(common_site_name), ''), 
+			       COALESCE(AVG(latitude), 0), COALESCE(AVG(longitude), 0), MAX(local_time_on_site) AS local_time, 
 			       COALESCE(AVG(level_cm), 0), COALESCE(MAX(snapshot_url0), ''), COALESCE(MAX(snapshot_url1), ''), COALESCE(MAX(snapshot_url2), ''), 
-			       NULL::jsonb, NULL::jsonb, COALESCE(AVG(net_water_level_cm), 0), COALESCE(AVG(water_level_pct), 0), MAX(created_at)
+			       NULL::jsonb, NULL::jsonb, COALESCE(AVG(net_water_level_cm), 0), COALESCE(AVG(water_level_pct), 0), COALESCE(MAX(created_at), NOW())
 			FROM river_current_stat 
 			WHERE serial = $1 AND time BETWEEN $2 AND $3 
 			GROUP BY bucket_time, serial 
@@ -1107,9 +1107,10 @@ func (r *pgRiverRepository) GetHistoricalStats(ctx context.Context, serial strin
 		rows, err = r.pool.Query(dbCtx, query, serial, start, end)
 	} else {
 		query = `
-			SELECT time, serial, session, common_site_name, latitude, longitude, local_time_on_site, 
-			       level_cm, snapshot_url0, snapshot_url1, snapshot_url2, 
-			       frequency_define, frequency_response, net_water_level_cm, water_level_pct, created_at 
+			SELECT time, serial, COALESCE(session, ''), COALESCE(common_site_name, ''), 
+			       COALESCE(latitude, 0), COALESCE(longitude, 0), local_time_on_site, 
+			       COALESCE(level_cm, 0), COALESCE(snapshot_url0, ''), COALESCE(snapshot_url1, ''), COALESCE(snapshot_url2, ''), 
+			       frequency_define, frequency_response, COALESCE(net_water_level_cm, 0), COALESCE(water_level_pct, 0), COALESCE(created_at, NOW()) 
 			FROM river_current_stat 
 			WHERE serial = $1 AND time BETWEEN $2 AND $3 
 			ORDER BY time ASC

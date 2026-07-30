@@ -335,18 +335,13 @@ export default function DeviceDetailPage({ params }: PageProps) {
       let endStr = '';
       const dateObj = new Date(selectedDate);
       if (resolution === 'daily') {
-        const start = new Date(dateObj);
-        start.setDate(start.getDate() - 30);
-        start.setHours(0, 0, 0, 0);
-        const end = new Date(dateObj);
-        end.setHours(23, 59, 59, 999);
+        const start = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate() - 30, 0, 0, 0, 0);
+        const end = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate(), 23, 59, 59, 999);
         startStr = start.toISOString();
         endStr = end.toISOString();
       } else {
-        const start = new Date(dateObj);
-        start.setHours(0, 0, 0, 0);
-        const end = new Date(dateObj);
-        end.setHours(23, 59, 59, 999);
+        const start = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate(), 0, 0, 0, 0);
+        const end = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate(), 23, 59, 59, 999);
         startStr = start.toISOString();
         endStr = end.toISOString();
       }
@@ -363,26 +358,6 @@ export default function DeviceDetailPage({ params }: PageProps) {
       setRefreshing(false);
     }
   }, [serial, selectedDate, resolution, apiFetch]);
-
-  useEffect(() => { fetchDeviceMetadata(); }, [fetchDeviceMetadata]);
-
-  useEffect(() => {
-    fetchStatsData();
-    setLastLoadedKey('');
-  }, [selectedDate, resolution, fetchStatsData]);
-
-  useEffect(() => {
-    const todayStr = new Date().toISOString().split('T')[0];
-    if (selectedDate !== todayStr) return;
-    const interval = setInterval(() => {
-      setRefreshing(true);
-      fetchStatsData(true);
-      fetchDeviceMetadata();
-    }, 15000);
-    return () => clearInterval(interval);
-  }, [selectedDate, fetchStatsData, fetchDeviceMetadata]);
-
-  useEffect(() => { setVisibleLogsCount(50); }, [selectedDate, resolution, selectedHour, selected6Hour]);
 
   const fetchLogStatsData = useCallback(async (isSilent = false) => {
     if (!isSilent) setLoadingLogs(true);
@@ -406,15 +381,32 @@ export default function DeviceDetailPage({ params }: PageProps) {
   }, [serial, selectedLogDate, apiFetch]);
 
   useEffect(() => { fetchLogStatsData(); }, [selectedLogDate, fetchLogStatsData]);
+  useEffect(() => { fetchStatsData(); }, [selectedDate, resolution, fetchStatsData]);
+  useEffect(() => { fetchDeviceMetadata(); }, [fetchDeviceMetadata]);
 
+  // Consolidate live sync interval to single 15s timer when dates match today
   useEffect(() => {
     const todayStr = new Date().toISOString().split('T')[0];
-    if (selectedLogDate !== todayStr) return;
-    const interval = setInterval(() => { fetchLogStatsData(true); }, 15000);
-    return () => clearInterval(interval);
-  }, [selectedLogDate, fetchLogStatsData]);
+    const isChartToday = selectedDate === todayStr;
+    const isLogToday = selectedLogDate === todayStr;
 
-  useEffect(() => { setVisibleLogsCount(50); }, [selectedLogDate, resolution, selectedHour, selected6Hour]);
+    if (!isChartToday && !isLogToday) return;
+
+    const interval = setInterval(() => {
+      setRefreshing(true);
+      if (isChartToday) {
+        fetchStatsData(true);
+        fetchDeviceMetadata();
+      }
+      if (isLogToday && selectedLogDate !== selectedDate) {
+        fetchLogStatsData(true);
+      }
+    }, 15000);
+
+    return () => clearInterval(interval);
+  }, [selectedDate, selectedLogDate, fetchStatsData, fetchDeviceMetadata, fetchLogStatsData]);
+
+  useEffect(() => { setVisibleLogsCount(50); }, [selectedDate, resolution, selectedHour, selected6Hour]);
 
   useEffect(() => {
     const key = `${selectedDate}_${resolution}`;
@@ -466,14 +458,14 @@ export default function DeviceDetailPage({ params }: PageProps) {
   }, [allStats, logStats]);
 
   const metrics = React.useMemo(() => {
-    if (allStats.length === 0) return { min: 0, max: 0, avg: 0 };
+    if (loading || allStats.length === 0) return { min: null, max: null, avg: null };
     const values = allStats.map((s: any) => s.net_water_level_cm).filter((v: any) => v !== null && v !== undefined);
-    if (values.length === 0) return { min: 0, max: 0, avg: 0 };
+    if (values.length === 0) return { min: null, max: null, avg: null };
     const min = Math.min(...values);
     const max = Math.max(...values);
     const avg = values.reduce((sum: number, v: number) => sum + v, 0) / values.length;
     return { min: parseFloat(min.toFixed(1)), max: parseFloat(max.toFixed(1)), avg: parseFloat(avg.toFixed(1)) };
-  }, [allStats]);
+  }, [allStats, loading]);
 
   const getStatusBadgeClass = (status: string) => {
     switch (status) {
@@ -594,21 +586,21 @@ export default function DeviceDetailPage({ params }: PageProps) {
         <div className="bg-white border border-slate-200 p-5 rounded-2xl shadow-sm">
           <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">ระดับสูงสุด (ช่วงที่เลือก)</span>
           <div className="flex items-baseline gap-1 mt-2">
-            <span className="text-3xl font-extrabold text-rose-600">{metrics.max}</span><span className="text-xs text-slate-400 font-bold">cm</span>
+            <span className="text-3xl font-extrabold text-rose-600">{metrics.max ?? '--'}</span><span className="text-xs text-slate-400 font-bold">cm</span>
           </div>
           <span className="text-[10px] text-slate-400 block mt-1 flex items-center gap-1"><TrendingUp className="w-3 h-3 text-rose-500" /> ระดับน้ำคำนวณ (Net)</span>
         </div>
         <div className="bg-white border border-slate-200 p-5 rounded-2xl shadow-sm">
           <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">ระดับต่ำสุด (ช่วงที่เลือก)</span>
           <div className="flex items-baseline gap-1 mt-2">
-            <span className="text-3xl font-extrabold text-emerald-600">{metrics.min}</span><span className="text-xs text-slate-400 font-bold">cm</span>
+            <span className="text-3xl font-extrabold text-emerald-600">{metrics.min ?? '--'}</span><span className="text-xs text-slate-400 font-bold">cm</span>
           </div>
           <span className="text-[10px] text-slate-400 block mt-1 flex items-center gap-1"><TrendingDown className="w-3 h-3 text-emerald-500" /> ระดับน้ำคำนวณ (Net)</span>
         </div>
         <div className="bg-white border border-slate-200 p-5 rounded-2xl shadow-sm">
           <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">ค่าเฉลี่ย (ช่วงที่เลือก)</span>
           <div className="flex items-baseline gap-1 mt-2">
-            <span className="text-3xl font-extrabold text-slate-700">{metrics.avg}</span><span className="text-xs text-slate-400 font-bold">cm</span>
+            <span className="text-3xl font-extrabold text-slate-700">{metrics.avg ?? '--'}</span><span className="text-xs text-slate-400 font-bold">cm</span>
           </div>
           <span className="text-[10px] text-slate-400 block mt-1 flex items-center gap-1"><Activity className="w-3 h-3 text-indigo-500 animate-pulse" /> ระดับน้ำคำนวณ (Net)</span>
         </div>
@@ -879,7 +871,7 @@ export default function DeviceDetailPage({ params }: PageProps) {
               {thresholds.length===0 && <span className="text-slate-400 italic">ไม่ได้กำหนดเกณฑ์สำหรับอุปกรณ์นี้</span>}
             </div>
           </div>
-          <div className="h-[350px] w-full mt-4" style={{ minHeight: '350px' }}>
+          <div className="h-[400px] w-full mt-4" style={{ minHeight: '400px' }}>
             {loading ? (
               <div className="w-full h-full flex flex-col justify-center items-center text-slate-400">
                 <div className="w-8 h-8 border-2 border-indigo-550/20 border-t-indigo-600 rounded-full animate-spin mb-3"></div>
@@ -893,7 +885,7 @@ export default function DeviceDetailPage({ params }: PageProps) {
             ) : (
               <WaterChart
                 data={chartData}
-                height={350}
+                height={400}
                 warningThresh={warningThresh}
                 criticalThresh={criticalThresh}
                 emergencyThresh={emergencyThresh}

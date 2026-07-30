@@ -248,7 +248,7 @@ export function TelemetryChart({
   const { yMin, yMax } = useMemo(() => {
     if (!processedData || processedData.length === 0) return { yMin: 0, yMax: 100 };
     
-    let allValues: number[] = [];
+    const allValues: number[] = [];
     processedData.forEach(d => {
       activeMetrics.forEach(key => {
         const v = d[key];

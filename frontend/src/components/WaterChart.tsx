@@ -336,17 +336,17 @@ export function WaterChart({
           </button>
         </div>
       </div>
-      <div className="flex w-full overflow-hidden">
+      <div className="flex w-full overflow-hidden rounded-2xl border border-slate-200/80 shadow-sm bg-white p-3 pb-6">
         {/* Frozen Left Y-Axis */}
-        <div style={{ width: "36px", height: `${height}px`, position: "relative" }} className="shrink-0 select-none pointer-events-none z-10 bg-transparent">
+        <div style={{ width: "40px", height: `${height - 75}px`, position: "relative" }} className="shrink-0 select-none pointer-events-none z-10 bg-white">
           <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
-            <AreaChart data={processedData} margin={{ top: 15, right: 0, left: 0, bottom: 5 }}>
+            <AreaChart data={processedData} margin={{ top: 15, right: 0, left: 0, bottom: 35 }}>
               <XAxis dataKey="label" hide />
               <YAxis
                 tickLine={false}
                 axisLine={false}
                 tick={{ fontSize: 9, fontWeight: 700, fill: "#94a3b8" }}
-                width={32}
+                width={36}
                 domain={[yMin, yMax]}
                 tickFormatter={(v: number) => v.toFixed(0)}
               />
@@ -362,16 +362,16 @@ export function WaterChart({
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onMouseLeave={handleMouseLeave}
-          className="flex-1 min-w-0 no-scrollbar rounded-r-2xl overflow-x-auto cursor-grab active:cursor-grabbing border-y border-r border-slate-150/65 shadow-inner"
+          className="flex-1 min-w-0 no-scrollbar overflow-x-auto cursor-grab active:cursor-grabbing"
         >
           <div
-            style={{ width: chartWidth, height: `${height}px`, minWidth: "100%", position: "relative" }}
+            style={{ width: chartWidth, height: `${height - 75}px`, minWidth: "100%", position: "relative" }}
           >
             <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
               <AreaChart
                 key={zoomLevel}
                 data={processedData}
-                margin={{ top: 15, right: 15, left: 10, bottom: 5 }}
+                margin={{ top: 15, right: 25, left: 10, bottom: 35 }}
                 onClick={handleChartClick}
               >
                 <ChartBase
