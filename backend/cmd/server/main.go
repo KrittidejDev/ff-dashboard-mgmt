@@ -285,7 +285,12 @@ func main() {
 	riverGroup.Get("/settings/:key", riverHandler.GetSetting)
 	riverGroup.Post("/settings", riverHandler.SaveSetting)
 
+	// Export System (Dynamic Column Picker + High Performance CSV Streaming)
+	riverGroup.Get("/export/columns", riverHandler.GetExportableColumns)
+	riverGroup.Post("/export/csv", riverHandler.ExportDevicesCSV)
+
 	// 9. Start Server
+
 	go func() {
 		l.Info("starting fiber REST gateway", zap.String("port", cfg.AppPort))
 		if err := app.Listen(fmt.Sprintf(":%s", cfg.AppPort)); err != nil {

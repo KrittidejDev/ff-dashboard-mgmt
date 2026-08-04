@@ -43,6 +43,25 @@ type RiverDevice struct {
 	BottomToBankCM      *float64   `json:"bottom_to_bank_cm,omitempty"`
 }
 
+// RiverExportRequest represents payload for exporting device CSV
+type RiverExportRequest struct {
+	Serials   []string `json:"serials"`
+	Search    string   `json:"search"`
+	Status    string   `json:"status"`
+	Tab       string   `json:"tab"` // "online", "offline", "all"
+	SelectAll bool     `json:"select_all"`
+	Columns   []string `json:"columns"`
+}
+
+// RiverColumnMeta represents metadata of exportable database column
+type RiverColumnMeta struct {
+	Key      string `json:"key"`
+	Label    string `json:"label"`
+	LabelEN  string `json:"label_en"`
+	Category string `json:"category"`
+}
+
+
 // CurrentGroup represents river_current_group in database
 type CurrentGroup struct {
 	Serial            string                 `json:"serial"`

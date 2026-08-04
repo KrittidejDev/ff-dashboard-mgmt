@@ -1,11 +1,27 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '@/context/AuthContext';
-import { Waves, RefreshCw, Layers, Cpu, AlertCircle, Anchor } from 'lucide-react';
+import {
+  Waves,
+  RefreshCw,
+  Layers,
+  Cpu,
+  AlertCircle,
+  Anchor,
+  FileSpreadsheet,
+  CheckSquare,
+  Square,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  Trash2,
+} from 'lucide-react';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { PageHeader, DashboardCard } from '@/components/UI';
+import ExportModal from '@/components/ExportModal';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081/api/v1';
 
@@ -32,13 +48,22 @@ export default function RiverMonitorDashboard() {
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [activeTab, setActiveTab] = useState<'online' | 'offline'>('online');
 
+  // Pagination Engine States
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+  // Selection Engine States (Cross-pagination)
+  const [selectedSerials, setSelectedSerials] = useState<Set<string>>(new Set());
+  const [isSelectAllMatching, setIsSelectAllMatching] = useState(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+
   const fetchDevices = useCallback(async () => {
     setLoading(true);
     try {
       const [devRes, unregRes, unregDevicesRes] = await Promise.allSettled([
         apiFetch(`${API_BASE_URL}/river/devices`),
         apiFetch(`${API_BASE_URL}/river/unregistered-serials`),
-        apiFetch(`${API_BASE_URL}/river/unregistered-devices`)
+        apiFetch(`${API_BASE_URL}/river/unregistered-devices`),
       ]);
 
       if (devRes.status === 'fulfilled' && devRes.value.ok) {
@@ -70,8 +95,13 @@ export default function RiverMonitorDashboard() {
 
   // Statistics
   const totalCount = devices.length;
-  const activeWarnings = devices.filter(d => d.warning_status === 'WARNING' || d.warning_status === 'CRITICAL' || d.warning_status === 'EMERGENCY').length;
-  const uniqueOrgs = new Set(devices.map(d => d.organization_name).filter(Boolean)).size;
+  const activeWarnings = devices.filter(
+    (d) =>
+      d.warning_status === 'WARNING' ||
+      d.warning_status === 'CRITICAL' ||
+      d.warning_status === 'EMERGENCY'
+  ).length;
+  const uniqueOrgs = new Set(devices.map((d) => d.organization_name).filter(Boolean)).size;
 
   // Offline condition check
   const isDeviceOffline = (d: any) => {
@@ -79,11 +109,11 @@ export default function RiverMonitorDashboard() {
     const lastSeenTime = new Date(d.last_seen).getTime();
     const nowTime = new Date().getTime();
     const thresholdMinutes = d.offline_threshold_min || 360;
-    return (nowTime - lastSeenTime) > thresholdMinutes * 60 * 1000;
+    return nowTime - lastSeenTime > thresholdMinutes * 60 * 1000;
   };
 
   const offlineDevices = React.useMemo(() => devices.filter(isDeviceOffline), [devices]);
-  const onlineDevices = React.useMemo(() => devices.filter(d => !isDeviceOffline(d)), [devices]);
+  const onlineDevices = React.useMemo(() => devices.filter((d) => !isDeviceOffline(d)), [devices]);
   const onlineCount = onlineDevices.length;
 
   // Combined list for map rendering (passes registered + unregistered)
@@ -98,17 +128,77 @@ export default function RiverMonitorDashboard() {
       const matchSearch =
         d.serial.toLowerCase().includes(searchTerm.toLowerCase()) ||
         d.name.toLowerCase().includes(searchTerm.toLowerCase());
-      
-      const matchStatus =
-        statusFilter === 'ALL' ||
-        (d.warning_status || 'NORMAL') === statusFilter;
+
+      const matchStatus = statusFilter === 'ALL' || (d.warning_status || 'NORMAL') === statusFilter;
 
       return matchSearch && matchStatus;
     });
   }, [onlineDevices, offlineDevices, activeTab, searchTerm, statusFilter]);
 
+  // Reset pagination & select all matching state when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+    setIsSelectAllMatching(false);
+  }, [searchTerm, statusFilter, activeTab]);
+
+  // Paginated devices slice
+  const totalPages = Math.max(1, Math.ceil(filteredDevices.length / pageSize));
+  const paginatedDevices = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredDevices.slice(start, start + pageSize);
+  }, [filteredDevices, currentPage, pageSize]);
+
+  // Page level selection helpers
+  const currentPageSerials = useMemo(() => paginatedDevices.map((d) => d.serial), [paginatedDevices]);
+
+  const isCurrentPageAllSelected = useMemo(() => {
+    if (currentPageSerials.length === 0) return false;
+    return currentPageSerials.every((s) => selectedSerials.has(s));
+  }, [currentPageSerials, selectedSerials]);
+
+  const isCurrentPageSomeSelected = useMemo(() => {
+    return currentPageSerials.some((s) => selectedSerials.has(s)) && !isCurrentPageAllSelected;
+  }, [currentPageSerials, selectedSerials, isCurrentPageAllSelected]);
+
+  const toggleSelectCurrentPage = () => {
+    setSelectedSerials((prev) => {
+      const next = new Set(prev);
+      if (isCurrentPageAllSelected) {
+        currentPageSerials.forEach((s) => next.delete(s));
+        setIsSelectAllMatching(false);
+      } else {
+        currentPageSerials.forEach((s) => next.add(s));
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectRow = (serial: string) => {
+    setSelectedSerials((prev) => {
+      const next = new Set(prev);
+      if (next.has(serial)) {
+        next.delete(serial);
+        setIsSelectAllMatching(false);
+      } else {
+        next.add(serial);
+      }
+      return next;
+    });
+  };
+
+  const handleSelectAllMatching = () => {
+    setIsSelectAllMatching(true);
+    const allFilteredSerials = filteredDevices.map((d) => d.serial);
+    setSelectedSerials(new Set(allFilteredSerials));
+  };
+
+  const clearSelection = () => {
+    setSelectedSerials(new Set());
+    setIsSelectAllMatching(false);
+  };
+
   return (
-    <div className="space-y-8 max-w-7xl mx-auto">
+    <div className="space-y-8 max-w-7xl mx-auto pb-16">
       {/* Title Header */}
       <PageHeader
         title="River Monitor"
@@ -137,8 +227,12 @@ export default function RiverMonitorDashboard() {
           <div className="flex items-center space-x-3">
             <AlertCircle className="w-5 h-5 text-amber-600" />
             <div>
-              <span className="font-bold text-sm">พบเซ็นเซอร์วัดน้ำใหม่ยังไม่ได้ลงทะเบียน ({unregisteredCount} รายการ)</span>
-              <p className="text-xs text-amber-700/90 mt-0.5">มีข้อมูลสัญญาณส่งเข้ามาจากอุปกรณ์ใหม่ แต่ยังไม่ได้บันทึกพิกัดและข้อมูลของสถานีลงในระบบ</p>
+              <span className="font-bold text-sm">
+                พบเซ็นเซอร์วัดน้ำใหม่ยังไม่ได้ลงทะเบียน ({unregisteredCount} รายการ)
+              </span>
+              <p className="text-xs text-amber-700/90 mt-0.5">
+                มีข้อมูลสัญญาณส่งเข้ามาจากอุปกรณ์ใหม่ แต่ยังไม่ได้บันทึกพิกัดและข้อมูลของสถานีลงในระบบ
+              </p>
             </div>
           </div>
           <Link
@@ -166,7 +260,11 @@ export default function RiverMonitorDashboard() {
             <span className="text-xs font-semibold uppercase tracking-wider">Active Warnings</span>
             <AlertCircle className="w-5 h-5 text-amber-500" />
           </div>
-          <h3 className={`text-3xl font-bold mt-4 ${activeWarnings > 0 ? 'text-amber-550 animate-pulse' : 'text-emerald-500'}`}>
+          <h3
+            className={`text-3xl font-bold mt-4 ${
+              activeWarnings > 0 ? 'text-amber-550 animate-pulse' : 'text-emerald-500'
+            }`}
+          >
             {activeWarnings}
           </h3>
           <p className="text-[10px] text-slate-500 mt-2">Critical threshold breaches.</p>
@@ -196,7 +294,7 @@ export default function RiverMonitorDashboard() {
         icon={<Layers className="w-5 h-5 text-indigo-650" />}
       >
         {/* Filters and Search Bar */}
-        <div className="flex flex-col md:flex-row gap-4 mb-6 justify-between items-stretch md:items-center">
+        <div className="flex flex-col md:flex-row gap-4 mb-4 justify-between items-stretch md:items-center">
           <div className="flex flex-1 gap-3 max-w-xl">
             <input
               type="text"
@@ -218,35 +316,91 @@ export default function RiverMonitorDashboard() {
             </select>
           </div>
 
-          {/* Tab Switcher */}
-          <div className="flex bg-slate-100 p-1 rounded-xl space-x-1 self-start md:self-auto">
+          <div className="flex items-center gap-3">
+            {/* Main Export Button */}
             <button
-              onClick={() => setActiveTab('online')}
-              className={`py-1.5 px-4 text-xs font-bold rounded-lg transition-all ${
-                activeTab === 'online'
-                  ? 'bg-white text-indigo-650 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-850'
-              }`}
+              onClick={() => setIsExportModalOpen(true)}
+              className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-2 rounded-xl transition shadow-sm"
             >
-              ออนไลน์ ({onlineCount})
+              <FileSpreadsheet className="w-4 h-4" />
+              <span>Export CSV Config</span>
             </button>
-            <button
-              onClick={() => setActiveTab('offline')}
-              className={`py-1.5 px-4 text-xs font-bold rounded-lg transition-all ${
-                activeTab === 'offline'
-                  ? 'bg-white text-rose-650 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-850'
-              }`}
-            >
-              ออฟไลน์ ({offlineDevices.length})
-            </button>
+
+            {/* Tab Switcher */}
+            <div className="flex bg-slate-100 p-1 rounded-xl space-x-1 self-start md:self-auto">
+              <button
+                onClick={() => setActiveTab('online')}
+                className={`py-1.5 px-4 text-xs font-bold rounded-lg transition-all ${
+                  activeTab === 'online'
+                    ? 'bg-white text-indigo-650 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-850'
+                }`}
+              >
+                ออนไลน์ ({onlineCount})
+              </button>
+              <button
+                onClick={() => setActiveTab('offline')}
+                className={`py-1.5 px-4 text-xs font-bold rounded-lg transition-all ${
+                  activeTab === 'offline'
+                    ? 'bg-white text-rose-650 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-850'
+                }`}
+              >
+                ออฟไลน์ ({offlineDevices.length})
+              </button>
+            </div>
           </div>
         </div>
 
+        {/* Cross-Pagination Selection Banner Suggestion */}
+        {isCurrentPageAllSelected &&
+          filteredDevices.length > paginatedDevices.length &&
+          !isSelectAllMatching && (
+            <div className="mb-4 bg-indigo-50 border border-indigo-200 text-indigo-900 px-4 py-2.5 rounded-xl text-xs flex items-center justify-between animate-in fade-in">
+              <span>
+                เลือกแล้ว <strong>{currentPageSerials.length} รายการ</strong> ในหน้านี้
+              </span>
+              <button
+                onClick={handleSelectAllMatching}
+                className="font-bold text-indigo-700 hover:text-indigo-900 underline ml-2"
+              >
+                กดเลือกทั้งหมด {filteredDevices.length} รายการที่ตรงตามตัวกรอง
+              </button>
+            </div>
+          )}
+
+        {isSelectAllMatching && (
+          <div className="mb-4 bg-indigo-600 text-white px-4 py-2.5 rounded-xl text-xs flex items-center justify-between shadow-sm animate-in fade-in">
+            <span>
+              คุณกำลังเลือกอุปกรณ์ทั้งหมด <strong>{filteredDevices.length} รายการ</strong> ที่ค้นพบข้ามทุกหน้า
+            </span>
+            <button onClick={clearSelection} className="font-bold text-white hover:underline ml-2">
+              ยกเลิกการเลือกทั้งหมด
+            </button>
+          </div>
+        )}
+
+        {/* Telemetry Table */}
         <div className="overflow-x-auto border border-slate-200 rounded-xl bg-white">
           <table className="w-full text-left text-xs border-collapse">
             <thead>
               <tr className="bg-slate-50 text-slate-500 border-b border-slate-200 font-semibold">
+                <th className="py-3.5 px-4 w-10 text-center">
+                  <button
+                    onClick={toggleSelectCurrentPage}
+                    className="text-slate-500 hover:text-indigo-600 transition"
+                  >
+                    {isCurrentPageAllSelected ? (
+                      <CheckSquare className="w-4 h-4 text-indigo-650" />
+                    ) : isCurrentPageSomeSelected ? (
+                      <div className="w-4 h-4 rounded bg-indigo-100 border border-indigo-400 flex items-center justify-center text-indigo-600 font-bold text-[10px]">
+                        -
+                      </div>
+                    ) : (
+                      <Square className="w-4 h-4 text-slate-400" />
+                    )}
+                  </button>
+                </th>
                 <th className="py-3.5 px-4">Serial</th>
                 <th className="py-3.5 px-4">Station Name</th>
                 <th className="py-3.5 px-4">Organization</th>
@@ -261,111 +415,262 @@ export default function RiverMonitorDashboard() {
             <tbody className="divide-y divide-slate-100 text-slate-700">
               {loading ? (
                 <tr>
-                  <td colSpan={9} className="py-8 text-center text-slate-400">
+                  <td colSpan={10} className="py-8 text-center text-slate-400">
                     <div className="w-6 h-6 border-2 border-indigo-500/20 border-t-indigo-600 rounded-full animate-spin mx-auto mb-2"></div>
                     Loading telemetry data...
                   </td>
                 </tr>
-              ) : filteredDevices.length === 0 ? (
+              ) : paginatedDevices.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-8 text-center text-slate-400">ไม่พบข้อมูลอุปกรณ์วัดน้ำที่ตรงกับตัวกรอง</td>
+                  <td colSpan={10} className="py-8 text-center text-slate-400">
+                    ไม่พบข้อมูลอุปกรณ์วัดน้ำที่ตรงกับตัวกรอง
+                  </td>
                 </tr>
               ) : (
-                filteredDevices.map((dev) => (
-                  <tr key={dev.serial} className="hover:bg-slate-50/50 transition-all">
-                    <td className="py-4 px-4 font-mono font-bold">
-                      <Link href={`/dashboard/river/${dev.serial}`} className="text-indigo-600 hover:text-indigo-800 hover:underline">
-                        {dev.serial}
-                      </Link>
-                    </td>
-                    <td className="py-4 px-4 font-bold">
-                      <Link href={`/dashboard/river/${dev.serial}`} className="text-slate-900 hover:text-indigo-650 hover:underline">
-                        {dev.name}
-                      </Link>
-                    </td>
-                    <td className="py-4 px-4 text-slate-500">{dev.organization_name || 'N/A'}</td>
-                    <td className="py-4 px-4 text-slate-500 font-mono">
-                      {dev.install_latitude && dev.install_longitude 
-                        ? `${parseFloat(dev.install_latitude).toFixed(4)}, ${parseFloat(dev.install_longitude).toFixed(4)}`
-                        : 'N/A'
-                      }
-                    </td>
-                    <td className="py-4 px-4 font-mono font-bold text-indigo-600">
-                      {dev.net_water_level_cm !== undefined && dev.net_water_level_cm !== null 
-                        ? `${dev.net_water_level_cm.toFixed(1)} cm`
-                        : 'N/A'
-                      }
-                      {dev.water_level_pct !== undefined && dev.water_level_pct !== null && (
-                        <span className="text-slate-400 text-[10px] block font-normal">
-                          {dev.water_level_pct.toFixed(1)}%
-                        </span>
-                      )}
-                      {dev.level_cm !== undefined && dev.level_cm !== null && (
-                        <span className="text-slate-400 text-[10px] block font-normal">
-                          Raw: {dev.level_cm.toFixed(2)} cm
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-4 px-4 text-slate-500 font-mono">
-                      {dev.last_seen 
-                        ? new Date(dev.last_seen).toLocaleString('th-TH')
-                        : 'N/A'
-                      }
-                    </td>
-                    <td className="py-4 px-4">
-                      {isDeviceOffline(dev) ? (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border bg-slate-100 text-slate-650 border-slate-200">
-                          <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
-                          OFFLINE
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border bg-emerald-50 text-emerald-700 border-emerald-100">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-550" />
-                          ONLINE
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-4 px-4">
-                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border ${
-                        dev.warning_status === 'EMERGENCY'
-                          ? 'bg-rose-500 text-white border-rose-600'
-                          : dev.warning_status === 'CRITICAL'
-                          ? 'bg-amber-500 text-white border-amber-600'
-                          : dev.warning_status === 'WARNING'
-                          ? 'bg-indigo-550 text-white border-indigo-600'
-                          : 'bg-emerald-50 text-emerald-700 border-emerald-100'
-                      }`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${
-                          dev.warning_status === 'EMERGENCY' || dev.warning_status === 'CRITICAL' || dev.warning_status === 'WARNING'
-                            ? 'bg-white animate-pulse'
-                            : 'bg-emerald-550'
-                        }`} />
-                        {dev.warning_status || 'NORMAL'}
-                      </span>
-                    </td>
-                    <td className="py-4 px-4 text-center">
-                      <div className="flex items-center justify-center gap-2">
+                paginatedDevices.map((dev) => {
+                  const isChecked = selectedSerials.has(dev.serial);
+                  return (
+                    <tr
+                      key={dev.serial}
+                      className={`hover:bg-slate-50/70 transition-all ${
+                        isChecked ? 'bg-indigo-50/30' : ''
+                      }`}
+                    >
+                      <td className="py-4 px-4 text-center">
+                        <button
+                          onClick={() => toggleSelectRow(dev.serial)}
+                          className="text-slate-500 hover:text-indigo-600 transition"
+                        >
+                          {isChecked ? (
+                            <CheckSquare className="w-4 h-4 text-indigo-650" />
+                          ) : (
+                            <Square className="w-4 h-4 text-slate-300" />
+                          )}
+                        </button>
+                      </td>
+                      <td className="py-4 px-4 font-mono font-bold">
                         <Link
                           href={`/dashboard/river/${dev.serial}`}
-                          className="inline-flex items-center space-x-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-150 px-2.5 py-1.5 rounded-xl transition text-[11px] font-bold shadow-sm"
+                          className="text-indigo-600 hover:text-indigo-800 hover:underline"
                         >
-                          Detail
+                          {dev.serial}
                         </Link>
+                      </td>
+                      <td className="py-4 px-4 font-bold">
                         <Link
-                          href={`/dashboard/river/stations?edit=${dev.serial}`}
-                          className="inline-flex items-center space-x-1 bg-white hover:bg-slate-50 text-slate-650 border border-slate-200 px-2.5 py-1.5 rounded-xl transition text-[11px] font-bold shadow-sm"
+                          href={`/dashboard/river/${dev.serial}`}
+                          className="text-slate-900 hover:text-indigo-650 hover:underline"
                         >
-                          Configure
+                          {dev.name}
                         </Link>
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                      </td>
+                      <td className="py-4 px-4 text-slate-500">{dev.organization_name || 'N/A'}</td>
+                      <td className="py-4 px-4 text-slate-500 font-mono">
+                        {dev.install_latitude && dev.install_longitude
+                          ? `${parseFloat(dev.install_latitude).toFixed(4)}, ${parseFloat(
+                              dev.install_longitude
+                            ).toFixed(4)}`
+                          : 'N/A'}
+                      </td>
+                      <td className="py-4 px-4 font-mono font-bold text-indigo-600">
+                        {dev.net_water_level_cm !== undefined && dev.net_water_level_cm !== null
+                          ? `${dev.net_water_level_cm.toFixed(1)} cm`
+                          : 'N/A'}
+                        {dev.water_level_pct !== undefined && dev.water_level_pct !== null && (
+                          <span className="text-slate-400 text-[10px] block font-normal">
+                            {dev.water_level_pct.toFixed(1)}%
+                          </span>
+                        )}
+                        {dev.level_cm !== undefined && dev.level_cm !== null && (
+                          <span className="text-slate-400 text-[10px] block font-normal">
+                            Raw: {dev.level_cm.toFixed(2)} cm
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-4 px-4 text-slate-500 font-mono">
+                        {dev.last_seen ? new Date(dev.last_seen).toLocaleString('th-TH') : 'N/A'}
+                      </td>
+                      <td className="py-4 px-4">
+                        {isDeviceOffline(dev) ? (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border bg-slate-100 text-slate-650 border-slate-200">
+                            <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                            OFFLINE
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border bg-emerald-50 text-emerald-700 border-emerald-100">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-550" />
+                            ONLINE
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-4 px-4">
+                        <span
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border ${
+                            dev.warning_status === 'EMERGENCY'
+                              ? 'bg-rose-500 text-white border-rose-600'
+                              : dev.warning_status === 'CRITICAL'
+                              ? 'bg-amber-500 text-white border-amber-600'
+                              : dev.warning_status === 'WARNING'
+                              ? 'bg-indigo-550 text-white border-indigo-600'
+                              : 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                          }`}
+                        >
+                          <span
+                            className={`w-1.5 h-1.5 rounded-full ${
+                              dev.warning_status === 'EMERGENCY' ||
+                              dev.warning_status === 'CRITICAL' ||
+                              dev.warning_status === 'WARNING'
+                                ? 'bg-white animate-pulse'
+                                : 'bg-emerald-550'
+                            }`}
+                          />
+                          {dev.warning_status || 'NORMAL'}
+                        </span>
+                      </td>
+                      <td className="py-4 px-4 text-center">
+                        <div className="flex items-center justify-center gap-2">
+                          <Link
+                            href={`/dashboard/river/${dev.serial}`}
+                            className="inline-flex items-center space-x-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-150 px-2.5 py-1.5 rounded-xl transition text-[11px] font-bold shadow-sm"
+                          >
+                            Detail
+                          </Link>
+                          <Link
+                            href={`/dashboard/river/stations?edit=${dev.serial}`}
+                            className="inline-flex items-center space-x-1 bg-white hover:bg-slate-50 text-slate-650 border border-slate-200 px-2.5 py-1.5 rounded-xl transition text-[11px] font-bold shadow-sm"
+                          >
+                            Configure
+                          </Link>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
         </div>
+
+        {/* Pagination Toolbar */}
+        {filteredDevices.length > 0 && (
+          <div className="mt-4 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500">
+            <div className="flex items-center space-x-4">
+              <span>
+                แสดง{' '}
+                <strong>
+                  {Math.min((currentPage - 1) * pageSize + 1, filteredDevices.length)}
+                </strong>{' '}
+                -{' '}
+                <strong>
+                  {Math.min(currentPage * pageSize, filteredDevices.length)}
+                </strong>{' '}
+                จากทั้งหมด <strong>{filteredDevices.length}</strong> รายการ
+              </span>
+
+              <div className="flex items-center space-x-1.5">
+                <span>แสดงหน้าละ:</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs font-bold text-slate-700 focus:outline-none focus:border-indigo-500"
+                >
+                  <option value={10}>10</option>
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Pagination Controls Buttons */}
+            <div className="flex items-center space-x-1">
+              <button
+                onClick={() => setCurrentPage(1)}
+                disabled={currentPage === 1}
+                className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40 transition"
+              >
+                <ChevronsLeft className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                disabled={currentPage === 1}
+                className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40 transition"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+
+              <span className="px-3 py-1 font-bold text-slate-700 bg-slate-100 rounded-lg">
+                {currentPage} / {totalPages}
+              </span>
+
+              <button
+                onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+                disabled={currentPage === totalPages}
+                className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40 transition"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setCurrentPage(totalPages)}
+                disabled={currentPage === totalPages}
+                className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40 transition"
+              >
+                <ChevronsRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
       </DashboardCard>
+
+      {/* Selection Floating Action Bar */}
+      {selectedSerials.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900/90 text-white backdrop-blur-md px-6 py-3 rounded-2xl shadow-2xl flex items-center space-x-6 border border-slate-700/50 animate-in slide-in-from-bottom duration-300">
+          <div className="flex items-center space-x-2 text-xs font-semibold">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+            <span>
+              เลือกอยู่{' '}
+              <strong className="text-emerald-400 text-sm">{selectedSerials.size}</strong> รายการ
+            </span>
+          </div>
+
+          <div className="h-4 w-px bg-slate-700" />
+
+          <div className="flex items-center space-x-3">
+            <button
+              onClick={() => setIsExportModalOpen(true)}
+              className="flex items-center space-x-1.5 bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs px-4 py-2 rounded-xl transition shadow-sm"
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              <span>Export CSV ({selectedSerials.size})</span>
+            </button>
+
+            <button
+              onClick={clearSelection}
+              className="flex items-center space-x-1 text-slate-400 hover:text-white text-xs transition px-2 py-1"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Clear</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Dynamic DB Column Picker Modal */}
+      <ExportModal
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+        selectedSerials={selectedSerials}
+        isSelectAllMatching={isSelectAllMatching}
+        totalMatchingCount={filteredDevices.length}
+        filterCriteria={{
+          search: searchTerm,
+          status: statusFilter,
+          tab: activeTab,
+        }}
+      />
     </div>
   );
 }

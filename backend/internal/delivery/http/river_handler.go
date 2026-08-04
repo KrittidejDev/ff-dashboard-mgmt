@@ -1039,3 +1039,243 @@ func (h *RiverHandler) ControlPTZ(c fiber.Ctx) error {
 	_, _ = io.Copy(c.Response().BodyWriter(), resp.Body)
 	return nil
 }
+
+// ── Export Handlers ──────────────────────────────────────────────────────────
+
+var exportableColumnsMap = []struct {
+	Key      string
+	Label    string
+	LabelEN  string
+	Category string
+}{
+	{Key: "serial", Label: "รหัสเซ็นเซอร์ (Serial)", LabelEN: "Device Serial", Category: "Station Information"},
+	{Key: "name", Label: "ชื่อสถานี", LabelEN: "Station Name", Category: "Station Information"},
+	{Key: "organization_name", Label: "หน่วยงาน / เจ้าของ", LabelEN: "Organization", Category: "Station Information"},
+	{Key: "status", Label: "สถานะการลงทะเบียน", LabelEN: "Device Status", Category: "Station Information"},
+	{Key: "description", Label: "รายละเอียดเพิ่มเติม", LabelEN: "Description", Category: "Station Information"},
+	{Key: "owner_email", Label: "อีเมลผู้ดูแล", LabelEN: "Owner Email", Category: "Station Information"},
+	{Key: "install_latitude", Label: "ละติจูด (Latitude)", LabelEN: "Latitude", Category: "Geolocation"},
+	{Key: "install_longitude", Label: "ลองจิจูด (Longitude)", LabelEN: "Longitude", Category: "Geolocation"},
+	{Key: "net_water_level_cm", Label: "ระดับน้ำสุทธิ (cm)", LabelEN: "Net Water Level (cm)", Category: "Telemetry & Sensor Data"},
+	{Key: "water_level_pct", Label: "ระดับน้ำ (%)", LabelEN: "Water Level (%)", Category: "Telemetry & Sensor Data"},
+	{Key: "level_cm", Label: "ระดับน้ำดิบจากเซ็นเซอร์ (cm)", LabelEN: "Raw Water Level (cm)", Category: "Telemetry & Sensor Data"},
+	{Key: "warning_status", Label: "ระดับการเตือนภัย", LabelEN: "Alert Warning Status", Category: "Telemetry & Sensor Data"},
+	{Key: "connection_status", Label: "สถานะการเชื่อมต่อ", LabelEN: "Connection Status", Category: "Telemetry & Sensor Data"},
+	{Key: "last_seen", Label: "เวลาอัปเดตล่าสุด", LabelEN: "Last Telemetry Timestamp", Category: "System Metadata"},
+	{Key: "created_at", Label: "วันที่สร้างสถานี", LabelEN: "Created At", Category: "System Metadata"},
+}
+
+func (h *RiverHandler) GetExportableColumns(c fiber.Ctx) error {
+	cols := make([]domain.RiverColumnMeta, len(exportableColumnsMap))
+	for i, item := range exportableColumnsMap {
+		cols[i] = domain.RiverColumnMeta{
+			Key:      item.Key,
+			Label:    item.Label,
+			LabelEN:  item.LabelEN,
+			Category: item.Category,
+		}
+	}
+	return c.JSON(cols)
+}
+
+func (h *RiverHandler) ExportDevicesCSV(c fiber.Ctx) error {
+	var req domain.RiverExportRequest
+	if err := c.Bind().JSON(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid export request body"})
+	}
+
+	// Fetch all registered devices
+	devices, err := h.repo.GetDevices(c.Context(), nil, nil)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	// Populate warning status from Redis
+	if len(devices) > 0 && h.rdb != nil {
+		keys := make([]string, len(devices))
+		for i, dev := range devices {
+			keys[i] = "ff:river:active_alert:" + dev.Serial
+		}
+		vals, err := h.rdb.MGet(c.Context(), keys...).Result()
+		if err == nil {
+			for i, val := range vals {
+				if valStr, ok := val.(string); ok && valStr != "" {
+					if len(valStr) >= 2 && valStr[0] == '"' && valStr[len(valStr)-1] == '"' {
+						valStr = valStr[1 : len(valStr)-1]
+					}
+					devices[i].WarningStatus = valStr
+				} else {
+					devices[i].WarningStatus = "NORMAL"
+				}
+			}
+		} else {
+			for _, dev := range devices {
+				dev.WarningStatus = "NORMAL"
+			}
+		}
+	}
+
+	// Helper offline detector
+	isOffline := func(d *domain.RiverDevice) bool {
+		if d.LastSeen == nil {
+			return true
+		}
+		threshold := 360
+		if d.OfflineThresholdMin != nil && *d.OfflineThresholdMin > 0 {
+			threshold = *d.OfflineThresholdMin
+		}
+		return time.Since(*d.LastSeen) > time.Duration(threshold)*time.Minute
+	}
+
+	// Filter devices based on criteria if serials array is not provided
+	selectedSerialsMap := make(map[string]bool)
+	for _, s := range req.Serials {
+		selectedSerialsMap[s] = true
+	}
+
+	searchLower := strings.ToLower(req.Search)
+	var exportList []*domain.RiverDevice
+
+	for _, dev := range devices {
+		// Filter by Tab (online/offline)
+		devOffline := isOffline(dev)
+		if req.Tab == "online" && devOffline {
+			continue
+		}
+		if req.Tab == "offline" && !devOffline {
+			continue
+		}
+
+		// Filter by Warning Status
+		if req.Status != "" && req.Status != "ALL" {
+			devWarn := dev.WarningStatus
+			if devWarn == "" {
+				devWarn = "NORMAL"
+			}
+			if devWarn != req.Status {
+				continue
+			}
+		}
+
+		// Filter by Search term
+		if searchLower != "" {
+			matchSerial := strings.Contains(strings.ToLower(dev.Serial), searchLower)
+			matchName := strings.Contains(strings.ToLower(dev.Name), searchLower)
+			if !matchSerial && !matchName {
+				continue
+			}
+		}
+
+		// Check selection
+		if req.SelectAll || len(selectedSerialsMap) == 0 || selectedSerialsMap[dev.Serial] {
+			exportList = append(exportList, dev)
+		}
+	}
+
+	// Column Allowlist mapping
+	validColsMap := make(map[string]string)
+	for _, col := range exportableColumnsMap {
+		validColsMap[col.Key] = col.Label
+	}
+
+	var selectedHeaders []string
+	var selectedKeys []string
+
+	if len(req.Columns) > 0 {
+		for _, key := range req.Columns {
+			if label, ok := validColsMap[key]; ok {
+				selectedKeys = append(selectedKeys, key)
+				selectedHeaders = append(selectedHeaders, label)
+			}
+		}
+	}
+
+	// Default to all columns if none specified or invalid
+	if len(selectedKeys) == 0 {
+		for _, col := range exportableColumnsMap {
+			selectedKeys = append(selectedKeys, col.Key)
+			selectedHeaders = append(selectedHeaders, col.Label)
+		}
+	}
+
+	// Set CSV headers & UTF-8 BOM for Excel
+	fileName := fmt.Sprintf("river_telemetry_%s.csv", time.Now().Format("20060102_150405"))
+	c.Set("Content-Type", "text/csv; charset=utf-8")
+	c.Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", fileName))
+
+	w := c.Response().BodyWriter()
+	// Write UTF-8 BOM
+	_, _ = w.Write([]byte{0xEF, 0xBB, 0xBF})
+
+	// CSV Header
+	var buf bytes.Buffer
+	buf.WriteString(strings.Join(selectedHeaders, ",") + "\n")
+	_, _ = w.Write(buf.Bytes())
+
+	// Write rows
+	for _, dev := range exportList {
+		var row []string
+		for _, key := range selectedKeys {
+			valStr := ""
+			switch key {
+			case "serial":
+				valStr = dev.Serial
+			case "name":
+				valStr = dev.Name
+			case "organization_name":
+				valStr = dev.OrganizationName
+			case "status":
+				valStr = dev.Status
+			case "description":
+				valStr = dev.Description
+			case "owner_email":
+				valStr = dev.OwnerEmail
+			case "install_latitude":
+				valStr = dev.InstallLatitude
+			case "install_longitude":
+				valStr = dev.InstallLongitude
+			case "net_water_level_cm":
+				if dev.NetWaterLevelCM != nil {
+					valStr = fmt.Sprintf("%.2f", *dev.NetWaterLevelCM)
+				}
+			case "water_level_pct":
+				if dev.WaterLevelPct != nil {
+					valStr = fmt.Sprintf("%.2f", *dev.WaterLevelPct)
+				}
+			case "level_cm":
+				if dev.LevelCM != nil {
+					valStr = fmt.Sprintf("%.2f", *dev.LevelCM)
+				}
+			case "warning_status":
+				valStr = dev.WarningStatus
+				if valStr == "" {
+					valStr = "NORMAL"
+				}
+			case "connection_status":
+				if isOffline(dev) {
+					valStr = "OFFLINE"
+				} else {
+					valStr = "ONLINE"
+				}
+			case "last_seen":
+				if dev.LastSeen != nil {
+					valStr = dev.LastSeen.Local().Format("2006-01-02 15:04:05")
+				}
+			case "created_at":
+				valStr = dev.CreatedAt.Local().Format("2006-01-02 15:04:05")
+			}
+
+			// Escape CSV double quotes
+			if strings.ContainsAny(valStr, ",\"\n\r") {
+				valStr = fmt.Sprintf("\"%s\"", strings.ReplaceAll(valStr, "\"", "\"\""))
+			}
+			row = append(row, valStr)
+		}
+
+		rowBuf := strings.Join(row, ",") + "\n"
+		_, _ = w.Write([]byte(rowBuf))
+	}
+
+	return nil
+}
+
