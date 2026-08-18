@@ -567,10 +567,10 @@ func (r *pgRiverRepository) GetDeviceCalcConfig(ctx context.Context, serial stri
 
 	cfg := &domain.DeviceCalcConfig{}
 	var extraB []byte
-	query := `SELECT id, serial, bottom_to_bank_cm, bank_to_sensor_cm, default_duration_sec, extra_config, created_at, updated_at 
+	query := `SELECT id, serial, bottom_to_bank_cm, bank_to_sensor_cm, default_duration_sec, COALESCE(sensor_mode, 'RIVER'), extra_config, created_at, updated_at 
 	          FROM river_device_config WHERE serial = $1`
 	err := r.pool.QueryRow(dbCtx, query, serial).Scan(
-		&cfg.ID, &cfg.Serial, &cfg.BottomToBankCM, &cfg.BankToSensorCM, &cfg.DefaultDurationSec, &extraB, &cfg.CreatedAt, &cfg.UpdatedAt,
+		&cfg.ID, &cfg.Serial, &cfg.BottomToBankCM, &cfg.BankToSensorCM, &cfg.DefaultDurationSec, &cfg.SensorMode, &extraB, &cfg.CreatedAt, &cfg.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errors.New("device calculation config not found")
@@ -587,23 +587,32 @@ func (r *pgRiverRepository) SaveDeviceCalcConfig(ctx context.Context, cfg *domai
 	dbCtx, cancel := r.getCtx(ctx)
 	defer cancel()
 
+	if cfg.SensorMode == "" {
+		if cfg.BottomToBankCM == 0 && cfg.BankToSensorCM > 0 {
+			cfg.SensorMode = "SURFACE"
+		} else {
+			cfg.SensorMode = "RIVER"
+		}
+	}
+
 	extraB, err := json.Marshal(cfg.ExtraConfig)
 	if err != nil {
 		return err
 	}
 
 	query := `
-		INSERT INTO river_device_config (serial, bottom_to_bank_cm, bank_to_sensor_cm, default_duration_sec, extra_config, updated_at)
-		VALUES ($1, $2, $3, $4, $5, NOW())
+		INSERT INTO river_device_config (serial, bottom_to_bank_cm, bank_to_sensor_cm, default_duration_sec, sensor_mode, extra_config, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, NOW())
 		ON CONFLICT (serial) DO UPDATE SET
 			bottom_to_bank_cm = EXCLUDED.bottom_to_bank_cm,
 			bank_to_sensor_cm = EXCLUDED.bank_to_sensor_cm,
 			default_duration_sec = EXCLUDED.default_duration_sec,
+			sensor_mode = EXCLUDED.sensor_mode,
 			extra_config = EXCLUDED.extra_config,
 			updated_at = NOW()
 		RETURNING id, created_at, updated_at
 	`
-	return r.pool.QueryRow(dbCtx, query, cfg.Serial, cfg.BottomToBankCM, cfg.BankToSensorCM, cfg.DefaultDurationSec, extraB).
+	return r.pool.QueryRow(dbCtx, query, cfg.Serial, cfg.BottomToBankCM, cfg.BankToSensorCM, cfg.DefaultDurationSec, cfg.SensorMode, extraB).
 		Scan(&cfg.ID, &cfg.CreatedAt, &cfg.UpdatedAt)
 }
 

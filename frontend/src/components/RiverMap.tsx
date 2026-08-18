@@ -185,13 +185,15 @@ const createClusterIcon = (cluster: any) => {
         iconAnchor: [22, 50],
       });
 
+      const isSurface = (d as any).sensor_mode === 'SURFACE' || ((d as any).bottom_to_bank_cm === 0 && (d as any).bank_to_sensor_cm > 0);
+
       return (
         <Marker
           key={d.serial}
           position={[lat, lng]}
           icon={pinIcon}
         >
-          <Popup>
+          <Popup className="custom-popup" key={d.serial}>
             <div className="p-1 space-y-3.5 min-w-[240px] text-slate-800">
               {/* Header */}
               <div className="flex justify-between items-center border-b border-slate-200 pb-2">
@@ -199,15 +201,24 @@ const createClusterIcon = (cluster: any) => {
                   <Waves className="w-3.5 h-3.5 text-indigo-650" />
                   <span className="font-extrabold text-slate-900 text-xs tracking-wide">{d.serial}</span>
                 </div>
-                <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full border tracking-wide uppercase ${
-                  status === 'ONLINE'
-                    ? 'bg-emerald-50 border-emerald-200 text-emerald-600'
-                    : status === 'WARNING'
-                    ? 'bg-amber-50 border-amber-200 text-amber-600 animate-pulse'
-                    : status === 'OFFLINE'
-                    ? 'bg-rose-50 border-rose-200 text-rose-600'
-                    : 'bg-slate-100 border-slate-300 text-slate-600'
-                }`}>{status}</span>
+                <div className="flex items-center gap-1.5">
+                  <span className={`text-[8.5px] font-black px-1.5 py-0.5 rounded border uppercase ${
+                    isSurface 
+                      ? 'bg-amber-50 border-amber-250 text-amber-700' 
+                      : 'bg-indigo-50 border-indigo-200 text-indigo-700'
+                  }`}>
+                    {isSurface ? '🚧 SURFACE' : '🌊 RIVER'}
+                  </span>
+                  <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full border tracking-wide uppercase ${
+                    status === 'ONLINE'
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-600'
+                      : status === 'WARNING'
+                      ? 'bg-amber-50 border-amber-200 text-amber-600 animate-pulse'
+                      : status === 'OFFLINE'
+                      ? 'bg-rose-50 border-rose-200 text-rose-600'
+                      : 'bg-slate-100 border-slate-300 text-slate-600'
+                  }`}>{status}</span>
+                </div>
               </div>
 
               {/* Quick Stats */}
@@ -221,20 +232,29 @@ const createClusterIcon = (cluster: any) => {
                   <span className="text-slate-700 truncate block">{d.organization_name || 'N/A'}</span>
                 </div>
                 <div className="bg-indigo-50 rounded-lg p-1.5 border border-indigo-100">
-                  <span className="text-indigo-600 font-bold block">Water Level</span>
-                  <span className="font-mono text-indigo-700 font-extrabold text-xs block">{valStr}</span>
+                  <span className="text-indigo-600 font-bold block">
+                    {isSurface ? 'ระดับน้ำท่วมขัง (Flood)' : 'ระดับน้ำ (Water Level)'}
+                  </span>
+                  <span className="font-mono text-indigo-700 font-extrabold text-xs block">
+                    {d.net_water_level_cm !== undefined && d.net_water_level_cm !== null 
+                      ? `${d.net_water_level_cm.toFixed(1)} cm` 
+                      : valStr}
+                  </span>
                 </div>
-                {d.net_water_level_cm !== undefined && d.net_water_level_cm !== null && (
-                  <div className="bg-sky-50 rounded-lg p-1.5 border border-sky-100">
-                    <span className="text-sky-600 font-bold block">Net Level</span>
-                    <span className="font-mono text-sky-700 font-extrabold text-xs block">{d.net_water_level_cm.toFixed(1)} cm</span>
+                {isSurface ? (
+                  <div className="bg-amber-50/50 rounded-lg p-1.5 border border-amber-150">
+                    <span className="text-amber-700 font-bold block">Station Type</span>
+                    <span className="text-amber-800 font-extrabold text-[10px] block">🚧 พื้นถนน (Road)</span>
                   </div>
-                )}
-                {d.water_level_pct !== undefined && d.water_level_pct !== null && (
-                  <div className="bg-indigo-55/40 rounded-lg p-1.5 border border-indigo-100">
-                    <span className="text-indigo-600 font-bold block">Percentage</span>
-                    <span className="font-mono text-indigo-700 font-extrabold text-xs block">{d.water_level_pct.toFixed(1)} %</span>
-                  </div>
+                ) : (
+                  <>
+                    {d.water_level_pct !== undefined && d.water_level_pct !== null && d.water_level_pct > 0 && (
+                      <div className="bg-indigo-55/40 rounded-lg p-1.5 border border-indigo-100">
+                        <span className="text-indigo-600 font-bold block">Percentage</span>
+                        <span className="font-mono text-indigo-700 font-extrabold text-xs block">{d.water_level_pct.toFixed(1)} %</span>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
 

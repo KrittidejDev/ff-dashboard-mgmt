@@ -44,6 +44,7 @@ export default function RiverStationsPage() {
     cctv_path_2: '',
     bottom_to_bank_cm: '',
     bank_to_sensor_cm: '',
+    sensor_mode: 'RIVER' as 'RIVER' | 'SURFACE',
   });
 
   const [thresholdsForm, setThresholdsForm] = useState<Record<string, {
@@ -79,6 +80,7 @@ export default function RiverStationsPage() {
       cctv_path_2: dev.cctv_path_2 || '',
       bottom_to_bank_cm: '',
       bank_to_sensor_cm: '',
+      sensor_mode: 'RIVER',
     });
     setThresholdsForm({
       WARNING: { id: null, threshold_cm: '', threshold_pct: '', freq_duration_sec: '', is_active: false },
@@ -96,6 +98,7 @@ export default function RiverStationsPage() {
           ...prev,
           bottom_to_bank_cm: configData.bottom_to_bank_cm !== undefined ? configData.bottom_to_bank_cm.toString() : '',
           bank_to_sensor_cm: configData.bank_to_sensor_cm !== undefined ? configData.bank_to_sensor_cm.toString() : '',
+          sensor_mode: (configData.sensor_mode === 'SURFACE' || (configData.bottom_to_bank_cm === 0 && configData.bank_to_sensor_cm > 0)) ? 'SURFACE' : 'RIVER',
         }));
       }
     } catch (err) {
@@ -255,8 +258,9 @@ export default function RiverStationsPage() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               serial: deviceForm.serial,
-              bottom_to_bank_cm: isNaN(bottom) ? 0 : bottom,
+              bottom_to_bank_cm: deviceForm.sensor_mode === 'SURFACE' ? 0 : (isNaN(bottom) ? 0 : bottom),
               bank_to_sensor_cm: isNaN(bank) ? 0 : bank,
+              sensor_mode: deviceForm.sensor_mode,
             }),
           });
         }
@@ -268,7 +272,7 @@ export default function RiverStationsPage() {
             const body = {
               alert_level: level,
               threshold_cm: th.threshold_cm ? parseFloat(th.threshold_cm) : null,
-              threshold_pct: th.threshold_pct ? parseFloat(th.threshold_pct) : null,
+              threshold_pct: null,
               freq_duration_sec: th.freq_duration_sec ? parseInt(th.freq_duration_sec) : null,
               is_active: th.is_active,
             };
@@ -321,6 +325,7 @@ export default function RiverStationsPage() {
       cctv_path_2: '',
       bottom_to_bank_cm: '',
       bank_to_sensor_cm: '',
+      sensor_mode: 'RIVER',
     });
     setThresholdsForm({
       WARNING: { id: null, threshold_cm: '', threshold_pct: '', freq_duration_sec: '', is_active: false },
@@ -351,6 +356,7 @@ export default function RiverStationsPage() {
       cctv_path_2: '',
       bottom_to_bank_cm: '',
       bank_to_sensor_cm: '',
+      sensor_mode: 'RIVER',
     });
     setThresholdsForm({
       WARNING: { id: null, threshold_cm: '', threshold_pct: '', freq_duration_sec: '', is_active: false },
@@ -714,26 +720,72 @@ export default function RiverStationsPage() {
                 />
               </div>
 
-              <div className="space-y-1">
-                <label className="text-xs text-slate-650 font-bold block">ท้องน้ำถึงตลิ่ง (ซม.) / Bottom to Bank (cm)</label>
-                <input
-                  type="text"
-                  required
-                  value={deviceForm.bottom_to_bank_cm}
-                  onChange={(e) => setDeviceForm({ ...deviceForm, bottom_to_bank_cm: e.target.value })}
-                  placeholder="e.g. 500.0"
-                  className="w-full bg-white border border-slate-200 rounded-xl py-2.5 px-3.5 text-sm text-slate-800 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100/40 font-mono"
-                />
+              {/* SENSOR MODE TOGGLE */}
+              <div className="md:col-span-2 space-y-2 bg-slate-50 border border-slate-200 p-3.5 rounded-xl">
+                <label className="text-xs text-slate-700 font-bold block">
+                  ประเภทสถานีตรวจวัด / Monitoring Mode
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setDeviceForm(p => ({ ...p, sensor_mode: 'RIVER' }))}
+                    className={`py-2 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center space-x-2 border ${
+                      deviceForm.sensor_mode === 'RIVER'
+                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    <span>🌊 แม่น้ำ / ลำคลอง (RIVER)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDeviceForm(p => ({ ...p, sensor_mode: 'SURFACE', bottom_to_bank_cm: '0' }))}
+                    className={`py-2 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center space-x-2 border ${
+                      deviceForm.sensor_mode === 'SURFACE'
+                        ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    <span>🚧 พื้นถนน / ชุมชน (SURFACE)</span>
+                  </button>
+                </div>
+                {deviceForm.sensor_mode === 'SURFACE' ? (
+                  <p className="text-[11px] text-amber-700 font-semibold bg-amber-50 border border-amber-200 p-2 rounded-lg mt-1">
+                    ℹ️ โหมดพื้นถนน: ระดับท้องน้ำจะถูกกำหนดเป็น 0 ซม. อัตโนมัติ โดยระบบจะคำนวณความสูงน้ำท่วมขังจากพื้นผิวถนนโดยตรง
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-slate-500 font-medium mt-1">
+                    ℹ️ โหมดแม่น้ำ: คำนวณระดับน้ำจากท้องน้ำถึงตลิ่ง และเทียบเปอร์เซ็นต์ความจุลำน้ำ
+                  </p>
+                )}
               </div>
 
-              <div className="space-y-1">
-                <label className="text-xs text-slate-650 font-bold block">ตลิ่งถึงเซ็นเซอร์ (ซม.) / Bank to Sensor (cm)</label>
+              {deviceForm.sensor_mode !== 'SURFACE' && (
+                <div className="space-y-1">
+                  <label className="text-xs text-slate-650 font-bold block">ท้องน้ำถึงตลิ่ง (ซม.) / Bottom to Bank (cm)</label>
+                  <input
+                    type="text"
+                    required
+                    value={deviceForm.bottom_to_bank_cm}
+                    onChange={(e) => setDeviceForm({ ...deviceForm, bottom_to_bank_cm: e.target.value })}
+                    placeholder="e.g. 500.0"
+                    className="w-full bg-white border border-slate-200 rounded-xl py-2.5 px-3.5 text-sm text-slate-800 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100/40 font-mono"
+                  />
+                </div>
+              )}
+
+              <div className={`space-y-1 ${deviceForm.sensor_mode === 'SURFACE' ? 'md:col-span-2' : ''}`}>
+                <label className="text-xs text-slate-650 font-bold block">
+                  {deviceForm.sensor_mode === 'SURFACE' 
+                    ? 'ความสูงหัวเซ็นเซอร์จากพื้นถนน (ซม.) / Ground to Sensor Height (cm)' 
+                    : 'ตลิ่งถึงเซ็นเซอร์ (ซม.) / Bank to Sensor (cm)'}
+                </label>
                 <input
                   type="text"
                   required
                   value={deviceForm.bank_to_sensor_cm}
                   onChange={(e) => setDeviceForm({ ...deviceForm, bank_to_sensor_cm: e.target.value })}
-                  placeholder="e.g. 150.0"
+                  placeholder={deviceForm.sensor_mode === 'SURFACE' ? "e.g. 200.0 (ความสูงเสา)" : "e.g. 150.0"}
                   className="w-full bg-white border border-slate-200 rounded-xl py-2.5 px-3.5 text-sm text-slate-800 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100/40 font-mono"
                 />
               </div>
@@ -802,9 +854,9 @@ export default function RiverStationsPage() {
                         </div>
 
                         {cfg.is_active && (
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3 pt-3 border-t border-slate-100">
                             <div className="space-y-1">
-                              <label className="text-[10px] text-slate-500 font-bold block">Threshold Depth (cm)</label>
+                              <label className="text-[10px] text-slate-700 font-bold block">ระดับน้ำแจ้งเตือน (ซม. / cm)</label>
                               <input
                                 type="number"
                                 step="any"
@@ -815,28 +867,12 @@ export default function RiverStationsPage() {
                                     [level]: { ...prev[level], threshold_cm: e.target.value }
                                   }));
                                 }}
-                                placeholder="e.g. 400"
-                                className="w-full bg-white border border-slate-200 rounded-xl py-1.5 px-3 text-xs text-slate-800 focus:outline-none focus:border-indigo-500"
+                                placeholder="เช่น 400"
+                                className="w-full bg-white border border-slate-200 rounded-xl py-1.5 px-3 text-xs text-slate-800 focus:outline-none focus:border-indigo-500 font-mono"
                               />
                             </div>
                             <div className="space-y-1">
-                              <label className="text-[10px] text-slate-500 font-bold block">Threshold Capacity (%)</label>
-                              <input
-                                type="number"
-                                step="any"
-                                value={cfg.threshold_pct}
-                                onChange={(e) => {
-                                  setThresholdsForm(prev => ({
-                                    ...prev,
-                                    [level]: { ...prev[level], threshold_pct: e.target.value }
-                                  }));
-                                }}
-                                placeholder="e.g. 80"
-                                className="w-full bg-white border border-slate-200 rounded-xl py-1.5 px-3 text-xs text-slate-800 focus:outline-none focus:border-indigo-500"
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <label className="text-[10px] text-slate-500 font-bold block">Transmission Interval / Snap Speed (sec)</label>
+                              <label className="text-[10px] text-slate-500 font-bold block">ความถี่ส่งข้อมูล / Interval (วินาที)</label>
                               <input
                                 type="number"
                                 value={cfg.freq_duration_sec}

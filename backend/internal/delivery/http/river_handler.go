@@ -443,12 +443,15 @@ func (h *RiverHandler) SaveDeviceCalcConfig(c fiber.Ctx) error {
 	if err == nil {
 		var cfg domain.DeviceCalcConfig
 		if err := json.Unmarshal(bodyBytes, &cfg); err == nil {
-			if cfg.BottomToBankCM > 0 {
-				netCM := cfg.BottomToBankCM - (latest.LevelCM - cfg.BankToSensorCM)
+			if cfg.BottomToBankCM > 0 || cfg.BankToSensorCM > 0 {
+				netCM := (cfg.BottomToBankCM + cfg.BankToSensorCM) - latest.LevelCM
 				if netCM < 0 {
 					netCM = 0
 				}
-				pct := (netCM / cfg.BottomToBankCM) * 100.0
+				var pct float64
+				if cfg.BottomToBankCM > 0 {
+					pct = (netCM / cfg.BottomToBankCM) * 100.0
+				}
 
 				// Round to 2 decimal places for storage consistency
 				netCM = math.Round(netCM*100) / 100

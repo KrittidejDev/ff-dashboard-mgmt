@@ -116,6 +116,7 @@ type DeviceCalcConfig struct {
 	BottomToBankCM     float64                `json:"bottom_to_bank_cm"`
 	BankToSensorCM     float64                `json:"bank_to_sensor_cm"`
 	DefaultDurationSec int                    `json:"default_duration_sec"`
+	SensorMode         string                 `json:"sensor_mode"`
 	ExtraConfig        map[string]interface{} `json:"extra_config"`
 	CreatedAt          time.Time              `json:"created_at"`
 	UpdatedAt          time.Time              `json:"updated_at"`

@@ -75,7 +75,8 @@ export default function DeviceDetailPage({ params }: PageProps) {
     bottom_to_bank_cm: '',
     bank_to_sensor_cm: '',
     default_duration_sec: '',
-    offline_threshold_min: ''
+    offline_threshold_min: '',
+    sensor_mode: 'RIVER' as 'RIVER' | 'SURFACE',
   });
   const [savingConfig, setSavingConfig] = useState(false);
 
@@ -199,6 +200,7 @@ export default function DeviceDetailPage({ params }: PageProps) {
             bank_to_sensor_cm: configData.bank_to_sensor_cm !== null && configData.bank_to_sensor_cm !== undefined ? configData.bank_to_sensor_cm.toString() : '',
             default_duration_sec: configData.default_duration_sec !== null && configData.default_duration_sec !== undefined ? configData.default_duration_sec.toString() : '',
             offline_threshold_min: configData.extra_config?.offline_threshold_min !== undefined && configData.extra_config?.offline_threshold_min !== null ? configData.extra_config.offline_threshold_min.toString() : '',
+            sensor_mode: (configData.sensor_mode === 'SURFACE' || (configData.bottom_to_bank_cm === 0 && configData.bank_to_sensor_cm > 0)) ? 'SURFACE' : 'RIVER',
           });
         }
       } else {
@@ -208,6 +210,7 @@ export default function DeviceDetailPage({ params }: PageProps) {
           bank_to_sensor_cm: '',
           default_duration_sec: '',
           offline_threshold_min: '',
+          sensor_mode: 'RIVER',
         });
       }
     } catch (err) {
@@ -221,15 +224,12 @@ export default function DeviceDetailPage({ params }: PageProps) {
       for (const level of ['WARNING', 'CRITICAL', 'EMERGENCY']) {
         const th = thresholdsForm[level];
         if (th.is_active || th.id !== null) {
-          const pctVal = th.threshold_pct !== '' && th.threshold_pct !== null && th.threshold_pct !== undefined ? parseFloat(th.threshold_pct) : null;
-          const calculatedCm = (pctVal !== null && deviceConfig?.bottom_to_bank_cm)
-            ? parseFloat(((pctVal / 100) * deviceConfig.bottom_to_bank_cm).toFixed(1))
-            : null;
-
+          const directCm = th.threshold_cm !== '' && th.threshold_cm !== null && th.threshold_cm !== undefined ? parseFloat(th.threshold_cm) : null;
+          
           const body = {
             alert_level: level,
-            threshold_cm: calculatedCm,
-            threshold_pct: pctVal,
+            threshold_cm: directCm,
+            threshold_pct: null,
             freq_duration_sec: th.freq_duration_sec !== '' && th.freq_duration_sec !== null && th.freq_duration_sec !== undefined ? parseInt(th.freq_duration_sec) : null,
             is_active: th.is_active,
           };
@@ -262,10 +262,12 @@ export default function DeviceDetailPage({ params }: PageProps) {
   const handleSaveConfig = async () => {
     setSavingConfig(true);
     try {
+      const isSurface = configForm.sensor_mode === 'SURFACE';
       const body = {
-        bottom_to_bank_cm: configForm.bottom_to_bank_cm ? parseFloat(configForm.bottom_to_bank_cm) : 0,
+        bottom_to_bank_cm: isSurface ? 0 : (configForm.bottom_to_bank_cm ? parseFloat(configForm.bottom_to_bank_cm) : 0),
         bank_to_sensor_cm: configForm.bank_to_sensor_cm ? parseFloat(configForm.bank_to_sensor_cm) : 0,
         default_duration_sec: configForm.default_duration_sec ? parseInt(configForm.default_duration_sec) : 0,
+        sensor_mode: configForm.sensor_mode,
         extra_config: {
           ...deviceConfig?.extra_config,
           offline_threshold_min: configForm.offline_threshold_min ? parseFloat(configForm.offline_threshold_min) : null
@@ -541,6 +543,13 @@ export default function DeviceDetailPage({ params }: PageProps) {
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-550" /> ONLINE
                     </span>
                   )}
+                  <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black border uppercase tracking-wider ${
+                    deviceConfig?.sensor_mode === 'SURFACE'
+                      ? 'bg-amber-50 text-amber-800 border-amber-250'
+                      : 'bg-indigo-50 text-indigo-800 border-indigo-200'
+                  }`}>
+                    {deviceConfig?.sensor_mode === 'SURFACE' ? '🚧 SURFACE' : '🌊 RIVER'}
+                  </span>
                   <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold border ${getStatusBadgeClass(device.warning_status)}`}>
                     <span className={`w-1.5 h-1.5 rounded-full bg-white ${device.warning_status !== 'NORMAL' ? 'animate-pulse' : ''}`} />
                     {device.warning_status || 'NORMAL'}
@@ -576,7 +585,7 @@ export default function DeviceDetailPage({ params }: PageProps) {
             <span className="text-3xl font-extrabold text-indigo-650">{device?.net_water_level_cm?.toFixed(1) ?? 'N/A'}</span>
             <span className="text-xs text-slate-400 font-bold">cm</span>
           </div>
-          {device?.water_level_pct !== undefined && (
+          {deviceConfig?.sensor_mode !== 'SURFACE' && device?.water_level_pct !== undefined && device?.water_level_pct > 0 && (
             <span className="text-[10px] font-bold text-slate-500 block mt-1">คิดเป็น {device.water_level_pct.toFixed(1)}% ของความจุตลิ่ง</span>
           )}
           {device?.level_cm !== undefined && device?.level_cm !== null && (
@@ -765,17 +774,19 @@ export default function DeviceDetailPage({ params }: PageProps) {
                         </label>
                       </div>
                       
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
-                          <span className="text-[10px] font-bold text-slate-500 block mb-1">ความจุตลิ่ง (%)</span>
+                          <span className="text-[10px] font-bold text-slate-700 block mb-1">
+                            ระดับน้ำแจ้งเตือน (ซม. / cm)
+                          </span>
                           <input 
                             type="number" 
                             step="0.1" 
-                            placeholder="เช่น 85" 
-                            value={cfg.threshold_pct} 
+                            placeholder="เช่น 50.0" 
+                            value={cfg.threshold_cm} 
                             disabled={!cfg.is_active}
-                            onChange={e=>setThresholdsForm(p=>({...p,[level]:{...p[level],threshold_pct:e.target.value}}))}
-                            className="w-full bg-white border border-slate-200 rounded-xl py-1.5 px-3 text-xs focus:outline-none focus:border-indigo-500 disabled:opacity-50 disabled:bg-slate-100/50 font-mono [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                            onChange={e=>setThresholdsForm(p=>({...p,[level]:{...p[level],threshold_cm:e.target.value}}))}
+                            className="w-full bg-white border border-slate-200 rounded-xl py-1.5 px-3 text-xs focus:outline-none focus:border-indigo-500 disabled:opacity-50 disabled:bg-slate-100/50 font-mono" 
                           />
                         </div>
                         <div>
@@ -786,7 +797,7 @@ export default function DeviceDetailPage({ params }: PageProps) {
                             value={cfg.freq_duration_sec} 
                             disabled={!cfg.is_active}
                             onChange={e=>setThresholdsForm(p=>({...p,[level]:{...p[level],freq_duration_sec:e.target.value}}))}
-                            className="w-full bg-white border border-slate-200 rounded-xl py-1.5 px-3 text-xs focus:outline-none focus:border-indigo-500 disabled:opacity-50 disabled:bg-slate-100/50 font-mono [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                            className="w-full bg-white border border-slate-200 rounded-xl py-1.5 px-3 text-xs focus:outline-none focus:border-indigo-500 disabled:opacity-50 disabled:bg-slate-100/50 font-mono" 
                           />
                         </div>
                       </div>
@@ -853,19 +864,19 @@ export default function DeviceDetailPage({ params }: PageProps) {
             </div>
             <div className="flex items-center flex-wrap gap-2 text-[10px] font-bold">
               <span className="text-slate-400 mr-1">เกณฑ์แจ้งเตือน:</span>
-              {warningThresh!==undefined && warningThreshPct!==undefined && (
+              {warningThresh!==undefined && (
                 <span className="bg-indigo-50 border border-indigo-150 text-indigo-650 px-2 py-0.5 rounded">
-                  Warning: &ge; {Number(warningThreshPct.toFixed(1))}% ({Number(warningThresh.toFixed(1))} cm)
+                  Warning: &ge; {Number(warningThresh.toFixed(1))} cm
                 </span>
               )}
-              {criticalThresh!==undefined && criticalThreshPct!==undefined && (
+              {criticalThresh!==undefined && (
                 <span className="bg-amber-50 border border-amber-250 text-amber-700 px-2 py-0.5 rounded">
-                  Critical: &ge; {Number(criticalThreshPct.toFixed(1))}% ({Number(criticalThresh.toFixed(1))} cm)
+                  Critical: &ge; {Number(criticalThresh.toFixed(1))} cm
                 </span>
               )}
-              {emergencyThresh!==undefined && emergencyThreshPct!==undefined && (
+              {emergencyThresh!==undefined && (
                 <span className="bg-rose-50 border border-rose-250 text-rose-700 px-2 py-0.5 rounded">
-                  Emergency: &ge; {Number(emergencyThreshPct.toFixed(1))}% ({Number(emergencyThresh.toFixed(1))} cm)
+                  Emergency: &ge; {Number(emergencyThresh.toFixed(1))} cm
                 </span>
               )}
               {thresholds.length===0 && <span className="text-slate-400 italic">ไม่ได้กำหนดเกณฑ์สำหรับอุปกรณ์นี้</span>}

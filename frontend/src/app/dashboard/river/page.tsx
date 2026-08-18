@@ -459,10 +459,17 @@ export default function RiverMonitorDashboard() {
                       <td className="py-4 px-4 font-bold">
                         <Link
                           href={`/dashboard/river/${dev.serial}`}
-                          className="text-slate-900 hover:text-indigo-650 hover:underline"
+                          className="text-slate-900 hover:text-indigo-650 hover:underline block"
                         >
                           {dev.name}
                         </Link>
+                        <span className={`inline-block mt-0.5 text-[8.5px] font-black px-1.5 py-0.2 rounded border uppercase ${
+                          (dev as any).sensor_mode === 'SURFACE' || ((dev as any).bottom_to_bank_cm === 0 && (dev as any).bank_to_sensor_cm > 0)
+                            ? 'bg-amber-50 border-amber-250 text-amber-700'
+                            : 'bg-indigo-50 border-indigo-200 text-indigo-700'
+                        }`}>
+                          {(dev as any).sensor_mode === 'SURFACE' || ((dev as any).bottom_to_bank_cm === 0 && (dev as any).bank_to_sensor_cm > 0) ? '🚧 SURFACE' : '🌊 RIVER'}
+                        </span>
                       </td>
                       <td className="py-4 px-4 text-slate-500">{dev.organization_name || 'N/A'}</td>
                       <td className="py-4 px-4 text-slate-500 font-mono">
@@ -476,9 +483,9 @@ export default function RiverMonitorDashboard() {
                         {dev.net_water_level_cm !== undefined && dev.net_water_level_cm !== null
                           ? `${dev.net_water_level_cm.toFixed(1)} cm`
                           : 'N/A'}
-                        {dev.water_level_pct !== undefined && dev.water_level_pct !== null && (
+                        {((dev as any).sensor_mode !== 'SURFACE' && (dev as any).bottom_to_bank_cm !== 0) && dev.water_level_pct !== undefined && dev.water_level_pct !== null && dev.water_level_pct > 0 && (
                           <span className="text-slate-400 text-[10px] block font-normal">
-                            {dev.water_level_pct.toFixed(1)}%
+                            {dev.water_level_pct.toFixed(1)}% ความจุ
                           </span>
                         )}
                         {dev.level_cm !== undefined && dev.level_cm !== null && (
