@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
+	"sort"
 	"time"
 
 	"ff-dashboard-mgmt/backend/internal/domain"
@@ -177,7 +179,8 @@ func (r *pgRiverRepository) GetDevices(ctx context.Context, pageID *int, status 
 	                 d.created_at, d.updated_at,
 	                 g.level_cm, g.net_water_level_cm, g.water_level_pct, to_timestamp(g.timestamp_utc),
 	                 c.extra_config, c.bottom_to_bank_cm,
-	                 g.snapshot_url0, g.snapshot_url1, g.snapshot_url2
+	                 g.snapshot_url0, g.snapshot_url1, g.snapshot_url2,
+	                 g.filtered_level_cm, g.filter_status, g.confidence_score, c.sensor_mode
 	          FROM river_device d
 	          LEFT JOIN river_current_group g ON d.serial = g.serial
 	          LEFT JOIN river_device_config c ON d.serial = c.serial
@@ -207,7 +210,8 @@ func (r *pgRiverRepository) GetDevices(ctx context.Context, pageID *int, status 
 	for rows.Next() {
 		d := &domain.RiverDevice{}
 		var desc, ownerEmail, ownerID, installLat, installLng, orgName, cctv0, cctv1, cctv2 *string
-		var levelCM, netWaterLevelCM, waterLevelPct, bottomToBankCM *float64
+		var levelCM, netWaterLevelCM, waterLevelPct, bottomToBankCM, filteredLevelCM, confidenceScore *float64
+		var filterStatus, sensorMode *string
 		var lastSeen *time.Time
 		var extraConfigB []byte
 		var snap0, snap1, snap2 *string
@@ -218,6 +222,7 @@ func (r *pgRiverRepository) GetDevices(ctx context.Context, pageID *int, status 
 			&levelCM, &netWaterLevelCM, &waterLevelPct, &lastSeen,
 			&extraConfigB, &bottomToBankCM,
 			&snap0, &snap1, &snap2,
+			&filteredLevelCM, &filterStatus, &confidenceScore, &sensorMode,
 		)
 		if err != nil {
 			return nil, err
@@ -258,6 +263,10 @@ func (r *pgRiverRepository) GetDevices(ctx context.Context, pageID *int, status 
 		d.LevelCM = levelCM
 		d.NetWaterLevelCM = netWaterLevelCM
 		d.WaterLevelPct = waterLevelPct
+		d.FilteredLevelCM = filteredLevelCM
+		d.FilterStatus = filterStatus
+		d.ConfidenceScore = confidenceScore
+		d.SensorMode = sensorMode
 		d.LastSeen = lastSeen
 		d.BottomToBankCM = bottomToBankCM
 		if len(extraConfigB) > 0 {
@@ -342,7 +351,8 @@ func (r *pgRiverRepository) GetDeviceBySerial(ctx context.Context, serial string
 
 	d := &domain.RiverDevice{}
 	var desc, ownerEmail, ownerID, installLat, installLng, orgName, cctv0, cctv1, cctv2 *string
-	var levelCM, netWaterLevelCM, waterLevelPct, bottomToBankCM *float64
+	var levelCM, netWaterLevelCM, waterLevelPct, bottomToBankCM, filteredLevelCM, confidenceScore *float64
+	var filterStatus, sensorMode *string
 	var lastSeen *time.Time
 	var snap0, snap1, snap2 *string
 	query := `SELECT d.id, d.serial, d.official_page_id, d.name, d.status, d.description, 
@@ -351,7 +361,8 @@ func (r *pgRiverRepository) GetDeviceBySerial(ctx context.Context, serial string
 	                 d.created_at, d.updated_at,
 	                 g.level_cm, g.net_water_level_cm, g.water_level_pct, to_timestamp(g.timestamp_utc),
 	                 c.extra_config, c.bottom_to_bank_cm,
-	                 g.snapshot_url0, g.snapshot_url1, g.snapshot_url2
+	                 g.snapshot_url0, g.snapshot_url1, g.snapshot_url2,
+	                 g.filtered_level_cm, g.filter_status, g.confidence_score, c.sensor_mode
 	          FROM river_device d
 	          LEFT JOIN river_current_group g ON d.serial = g.serial
 	          LEFT JOIN river_device_config c ON d.serial = c.serial
@@ -364,6 +375,7 @@ func (r *pgRiverRepository) GetDeviceBySerial(ctx context.Context, serial string
 		&levelCM, &netWaterLevelCM, &waterLevelPct, &lastSeen,
 		&extraConfigB, &bottomToBankCM,
 		&snap0, &snap1, &snap2,
+		&filteredLevelCM, &filterStatus, &confidenceScore, &sensorMode,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errors.New("device not found")
@@ -407,6 +419,10 @@ func (r *pgRiverRepository) GetDeviceBySerial(ctx context.Context, serial string
 	d.LevelCM = levelCM
 	d.NetWaterLevelCM = netWaterLevelCM
 	d.WaterLevelPct = waterLevelPct
+	d.FilteredLevelCM = filteredLevelCM
+	d.FilterStatus = filterStatus
+	d.ConfidenceScore = confidenceScore
+	d.SensorMode = sensorMode
 	d.LastSeen = lastSeen
 	d.BottomToBankCM = bottomToBankCM
 	if len(extraConfigB) > 0 {
@@ -614,6 +630,96 @@ func (r *pgRiverRepository) SaveDeviceCalcConfig(ctx context.Context, cfg *domai
 	`
 	return r.pool.QueryRow(dbCtx, query, cfg.Serial, cfg.BottomToBankCM, cfg.BankToSensorCM, cfg.DefaultDurationSec, cfg.SensorMode, extraB).
 		Scan(&cfg.ID, &cfg.CreatedAt, &cfg.UpdatedAt)
+}
+
+func (r *pgRiverRepository) CalibrateDeviceBaseline(ctx context.Context, serial string, targetDistanceCM *float64) (*domain.DeviceCalcConfig, error) {
+	dbCtx, cancel := r.getCtx(ctx)
+	defer cancel()
+
+	var baselineCM float64
+	if targetDistanceCM != nil && *targetDistanceCM > 0 {
+		baselineCM = *targetDistanceCM
+	} else {
+		// Fetch last 20 telemetry readings (past 1-2 hours) to compute the true ground baseline statistically.
+		// Fix #6: Raised outlier threshold from 50 cm to 100 cm.
+		// SURFACE sensors are installed 200-600 cm above ground; vehicles parked directly underneath
+		// reflect at ~100-200 cm. The old 50 cm threshold could not reliably exclude those readings.
+		// Using COALESCE prefers the filtered value (more accurate) over raw level_cm.
+		statQuery := `
+			SELECT COALESCE(filtered_level_cm, level_cm) AS dist
+			FROM river_current_stat
+			WHERE serial = $1 AND COALESCE(filtered_level_cm, level_cm) > 100
+			ORDER BY time DESC
+			LIMIT 20
+		`
+		rows, err := r.pool.Query(dbCtx, statQuery, serial)
+		var samples []float64
+		if err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var d float64
+				if err := rows.Scan(&d); err == nil && d > 50.0 {
+					samples = append(samples, d)
+				}
+			}
+		}
+
+		if len(samples) >= 3 {
+			// Sort samples to compute P90 (upper percentile covering radar jitter on dry road)
+			sort.Float64s(samples)
+			p90Idx := int(float64(len(samples)-1) * 0.90)
+			baselineCM = math.Round(samples[p90Idx]*10) / 10
+		} else {
+			// Fallback to latest reading from river_current_group
+			var levelCM, filteredLevelCM *float64
+			query := `SELECT level_cm, filtered_level_cm FROM river_current_group WHERE serial = $1`
+			err := r.pool.QueryRow(dbCtx, query, serial).Scan(&levelCM, &filteredLevelCM)
+			if err != nil {
+				return nil, fmt.Errorf("failed to fetch current distance for serial %s: %w", serial, err)
+			}
+			if filteredLevelCM != nil && *filteredLevelCM > 0 {
+				baselineCM = *filteredLevelCM
+			} else if levelCM != nil && *levelCM > 0 {
+				baselineCM = *levelCM
+			} else {
+				return nil, errors.New("no valid sensor distance reading available to calibrate")
+			}
+		}
+	}
+
+	// Update river_device_config with bank_to_sensor_cm = baselineCM, bottom_to_bank_cm = 0, sensor_mode = 'SURFACE'
+	cfg := &domain.DeviceCalcConfig{
+		Serial:             serial,
+		BottomToBankCM:     0.0,
+		BankToSensorCM:     baselineCM,
+		DefaultDurationSec: 300,
+		SensorMode:         "SURFACE",
+	}
+
+	upsertQuery := `
+		INSERT INTO river_device_config (serial, bottom_to_bank_cm, bank_to_sensor_cm, default_duration_sec, sensor_mode, updated_at)
+		VALUES ($1, 0, $2, 300, 'SURFACE', NOW())
+		ON CONFLICT (serial) DO UPDATE SET
+			bottom_to_bank_cm = 0,
+			bank_to_sensor_cm = EXCLUDED.bank_to_sensor_cm,
+			sensor_mode = 'SURFACE',
+			updated_at = NOW()
+		RETURNING id, created_at, updated_at
+	`
+	err := r.pool.QueryRow(dbCtx, upsertQuery, serial, baselineCM).Scan(&cfg.ID, &cfg.CreatedAt, &cfg.UpdatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update device config for calibration: %w", err)
+	}
+
+	// Reset net_water_level_cm = 0.0, water_level_pct = 0.0 in river_current_group
+	resetGroupQuery := `
+		UPDATE river_current_group 
+		SET net_water_level_cm = 0.0, water_level_pct = 0.0, filter_status = 'NORMAL', updated_at = NOW() 
+		WHERE serial = $1
+	`
+	_, _ = r.pool.Exec(dbCtx, resetGroupQuery, serial)
+
+	return cfg, nil
 }
 
 func (r *pgRiverRepository) UpdateWaterLevel(ctx context.Context, serial string, netCM, pct float64) error {
@@ -1095,7 +1201,8 @@ func (r *pgRiverRepository) GetHistoricalStats(ctx context.Context, serial strin
 			SELECT time_bucket('1 hour', time) AS bucket_time, serial, COALESCE(MAX(session), ''), COALESCE(MAX(common_site_name), ''), 
 			       COALESCE(AVG(latitude), 0), COALESCE(AVG(longitude), 0), MAX(local_time_on_site) AS local_time, 
 			       COALESCE(AVG(level_cm), 0), COALESCE(MAX(snapshot_url0), ''), COALESCE(MAX(snapshot_url1), ''), COALESCE(MAX(snapshot_url2), ''), 
-			       NULL::jsonb, NULL::jsonb, COALESCE(AVG(net_water_level_cm), 0), COALESCE(AVG(water_level_pct), 0), COALESCE(MAX(created_at), NOW())
+			       NULL::jsonb, NULL::jsonb, COALESCE(AVG(net_water_level_cm), 0), COALESCE(AVG(water_level_pct), 0), 
+			       COALESCE(AVG(raw_level_cm), 0), COALESCE(AVG(filtered_level_cm), 0), 0, 0, 0, false, COALESCE(MAX(created_at), NOW())
 			FROM river_current_stat 
 			WHERE serial = $1 AND time BETWEEN $2 AND $3 
 			GROUP BY bucket_time, serial 
@@ -1107,7 +1214,8 @@ func (r *pgRiverRepository) GetHistoricalStats(ctx context.Context, serial strin
 			SELECT time_bucket('15 minutes', time) AS bucket_time, serial, COALESCE(MAX(session), ''), COALESCE(MAX(common_site_name), ''), 
 			       COALESCE(AVG(latitude), 0), COALESCE(AVG(longitude), 0), MAX(local_time_on_site) AS local_time, 
 			       COALESCE(AVG(level_cm), 0), COALESCE(MAX(snapshot_url0), ''), COALESCE(MAX(snapshot_url1), ''), COALESCE(MAX(snapshot_url2), ''), 
-			       NULL::jsonb, NULL::jsonb, COALESCE(AVG(net_water_level_cm), 0), COALESCE(AVG(water_level_pct), 0), COALESCE(MAX(created_at), NOW())
+			       NULL::jsonb, NULL::jsonb, COALESCE(AVG(net_water_level_cm), 0), COALESCE(AVG(water_level_pct), 0), 
+			       COALESCE(AVG(raw_level_cm), 0), COALESCE(AVG(filtered_level_cm), 0), 0, 0, 0, false, COALESCE(MAX(created_at), NOW())
 			FROM river_current_stat 
 			WHERE serial = $1 AND time BETWEEN $2 AND $3 
 			GROUP BY bucket_time, serial 
@@ -1119,7 +1227,9 @@ func (r *pgRiverRepository) GetHistoricalStats(ctx context.Context, serial strin
 			SELECT time, serial, COALESCE(session, ''), COALESCE(common_site_name, ''), 
 			       COALESCE(latitude, 0), COALESCE(longitude, 0), local_time_on_site, 
 			       COALESCE(level_cm, 0), COALESCE(snapshot_url0, ''), COALESCE(snapshot_url1, ''), COALESCE(snapshot_url2, ''), 
-			       frequency_define, frequency_response, COALESCE(net_water_level_cm, 0), COALESCE(water_level_pct, 0), COALESCE(created_at, NOW()) 
+			       frequency_define, frequency_response, COALESCE(net_water_level_cm, 0), COALESCE(water_level_pct, 0),
+			       COALESCE(raw_level_cm, level_cm), filtered_level_cm, confidence_score, dq_flags, filter_status, is_valid_for_alert,
+			       COALESCE(created_at, NOW()) 
 			FROM river_current_stat 
 			WHERE serial = $1 AND time BETWEEN $2 AND $3 
 			ORDER BY time ASC
@@ -1138,11 +1248,23 @@ func (r *pgRiverRepository) GetHistoricalStats(ctx context.Context, serial strin
 		var freqDefJSON []byte
 		var freqRespJSON []byte
 
-		err := rows.Scan(
-			&s.Time, &s.Serial, &s.Session, &s.CommonSiteName, &s.Latitude, &s.Longitude, &s.LocalTimeOnSite,
-			&s.LevelCM, &s.SnapshotURL0, &s.SnapshotURL1, &s.SnapshotURL2,
-			&freqDefJSON, &freqRespJSON, &s.NetWaterLevelCM, &s.WaterLevelPct, &s.CreatedAt,
-		)
+		if diff > 48*time.Hour {
+			err = rows.Scan(
+				&s.Time, &s.Serial, &s.Session, &s.CommonSiteName, &s.Latitude, &s.Longitude, &s.LocalTimeOnSite,
+				&s.LevelCM, &s.SnapshotURL0, &s.SnapshotURL1, &s.SnapshotURL2,
+				&freqDefJSON, &freqRespJSON, &s.NetWaterLevelCM, &s.WaterLevelPct,
+				&s.RawLevelCM, &s.FilteredLevelCM, &s.ConfidenceScore, &s.DQFlags, &s.FilterStatus, &s.IsValidForAlert,
+				&s.CreatedAt,
+			)
+		} else {
+			err = rows.Scan(
+				&s.Time, &s.Serial, &s.Session, &s.CommonSiteName, &s.Latitude, &s.Longitude, &s.LocalTimeOnSite,
+				&s.LevelCM, &s.SnapshotURL0, &s.SnapshotURL1, &s.SnapshotURL2,
+				&freqDefJSON, &freqRespJSON, &s.NetWaterLevelCM, &s.WaterLevelPct,
+				&s.RawLevelCM, &s.FilteredLevelCM, &s.ConfidenceScore, &s.DQFlags, &s.FilterStatus, &s.IsValidForAlert,
+				&s.CreatedAt,
+			)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -1184,4 +1306,78 @@ func (r *pgRiverRepository) GetWarningHistory(ctx context.Context, serial string
 		history = append(history, w)
 	}
 	return history, nil
+}
+
+func (r *pgRiverRepository) GetNoiseAuditLogs(ctx context.Context, serial string, eventType string, limit, offset int) ([]*domain.NoiseAuditLog, int, error) {
+	dbCtx, cancel := r.getCtx(ctx)
+	defer cancel()
+
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	whereClause := "WHERE 1=1"
+	var args []interface{}
+	argIdx := 1
+
+	if serial != "" {
+		whereClause += fmt.Sprintf(" AND serial = $%d", argIdx)
+		args = append(args, serial)
+		argIdx++
+	}
+	if eventType != "" && eventType != "ALL" {
+		whereClause += fmt.Sprintf(" AND event_type = $%d", argIdx)
+		args = append(args, eventType)
+		argIdx++
+	}
+
+	countQuery := "SELECT COUNT(*) FROM river_noise_audit_log " + whereClause
+	var total int
+	err := r.pool.QueryRow(dbCtx, countQuery, args...).Scan(&total)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	query := fmt.Sprintf(`
+		SELECT id, recorded_at, serial, event_type, raw_level_cm, filtered_level_cm,
+		       slew_rate_cm_s, dq_flags, confidence_score, COALESCE(snapshot_url0, ''), detail
+		FROM river_noise_audit_log
+		%s
+		ORDER BY recorded_at DESC
+		LIMIT $%d OFFSET $%d
+	`, whereClause, argIdx, argIdx+1)
+
+	args = append(args, limit, offset)
+
+	rows, err := r.pool.Query(dbCtx, query, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var logs []*domain.NoiseAuditLog
+	for rows.Next() {
+		item := &domain.NoiseAuditLog{}
+		var detailJSON []byte
+		err := rows.Scan(
+			&item.ID, &item.RecordedAt, &item.Serial, &item.EventType,
+			&item.RawLevelCM, &item.FilteredLevelCM, &item.SlewRateCMS,
+			&item.DQFlags, &item.ConfidenceScore, &item.SnapshotURL0, &detailJSON,
+		)
+		if err != nil {
+			return nil, 0, err
+		}
+		if len(detailJSON) > 0 {
+			_ = json.Unmarshal(detailJSON, &item.Detail)
+		}
+		logs = append(logs, item)
+	}
+
+	return logs, total, nil
 }

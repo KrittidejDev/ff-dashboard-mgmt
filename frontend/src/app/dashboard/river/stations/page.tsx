@@ -775,11 +775,26 @@ export default function RiverStationsPage() {
               )}
 
               <div className={`space-y-1 ${deviceForm.sensor_mode === 'SURFACE' ? 'md:col-span-2' : ''}`}>
-                <label className="text-xs text-slate-650 font-bold block">
-                  {deviceForm.sensor_mode === 'SURFACE' 
-                    ? 'ความสูงหัวเซ็นเซอร์จากพื้นถนน (ซม.) / Ground to Sensor Height (cm)' 
-                    : 'ตลิ่งถึงเซ็นเซอร์ (ซม.) / Bank to Sensor (cm)'}
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="text-xs text-slate-650 font-bold block">
+                    {deviceForm.sensor_mode === 'SURFACE' 
+                      ? 'ความสูงหัวเซ็นเซอร์จากพื้นถนน (ซม.) / Ground to Sensor Height (cm)' 
+                      : 'ตลิ่งถึงเซ็นเซอร์ (ซม.) / Bank to Sensor (cm)'}
+                  </label>
+                  {editingDevice && ((editingDevice as any).filtered_level_cm || (editingDevice as any).level_cm) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const val = (editingDevice as any).filtered_level_cm || (editingDevice as any).level_cm;
+                        if (val) setDeviceForm(p => ({ ...p, bank_to_sensor_cm: val.toFixed(1) }));
+                      }}
+                      className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-lg transition"
+                      title="นำค่าระยะที่เรดาร์วัดได้สดๆ มาใส่เป็นความสูงเสา"
+                    >
+                      🎯 ดึงค่าสด ({((editingDevice as any).filtered_level_cm || (editingDevice as any).level_cm).toFixed(1)} cm)
+                    </button>
+                  )}
+                </div>
                 <input
                   type="text"
                   required

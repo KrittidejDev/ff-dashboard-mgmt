@@ -480,19 +480,46 @@ export default function RiverMonitorDashboard() {
                           : 'N/A'}
                       </td>
                       <td className="py-4 px-4 font-mono font-bold text-indigo-600">
-                        {dev.net_water_level_cm !== undefined && dev.net_water_level_cm !== null
-                          ? `${dev.net_water_level_cm.toFixed(1)} cm`
-                          : 'N/A'}
-                        {((dev as any).sensor_mode !== 'SURFACE' && (dev as any).bottom_to_bank_cm !== 0) && dev.water_level_pct !== undefined && dev.water_level_pct !== null && dev.water_level_pct > 0 && (
-                          <span className="text-slate-400 text-[10px] block font-normal">
-                            {dev.water_level_pct.toFixed(1)}% ความจุ
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-sm font-extrabold text-indigo-700">
+                            {dev.net_water_level_cm !== undefined && dev.net_water_level_cm !== null
+                              ? `${dev.net_water_level_cm.toFixed(1)} cm`
+                              : 'N/A'}
                           </span>
-                        )}
-                        {dev.level_cm !== undefined && dev.level_cm !== null && (
-                          <span className="text-slate-400 text-[10px] block font-normal">
-                            Raw: {dev.level_cm.toFixed(2)} cm
-                          </span>
-                        )}
+                          {((dev as any).sensor_mode !== 'SURFACE' && (dev as any).bottom_to_bank_cm !== 0) && dev.water_level_pct !== undefined && dev.water_level_pct !== null && dev.water_level_pct > 0 && (
+                            <span className="text-slate-400 text-[10px] block font-normal">
+                              {dev.water_level_pct.toFixed(1)}% ความจุ
+                            </span>
+                          )}
+                          {dev.filtered_level_cm !== undefined && dev.filtered_level_cm !== null && (
+                            <span className="text-slate-400 text-[9.5px] block font-normal">
+                              Filtered: {dev.filtered_level_cm.toFixed(1)} cm
+                            </span>
+                          )}
+                          {dev.filter_status && (
+                            <span className={`inline-flex items-center gap-1 w-fit mt-1 text-[8.5px] font-black px-2 py-0.5 rounded-full border ${
+                              dev.filter_status === 'NORMAL'
+                                ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                                : dev.filter_status === 'DRY_ROAD'
+                                ? 'bg-amber-50 border-amber-200 text-amber-700'
+                                : dev.filter_status === 'VEHICLE_BLOCKED'
+                                ? 'bg-sky-50 border-sky-250 text-sky-700'
+                                : dev.filter_status === 'POLE_SWAY_DAMPED'
+                                ? 'bg-purple-50 border-purple-200 text-purple-700'
+                                : dev.filter_status === 'FLASH_FLOOD_BYPASS'
+                                ? 'bg-rose-50 border-rose-250 text-rose-700 animate-pulse'
+                                : 'bg-slate-50 border-slate-200 text-slate-700'
+                            }`}>
+                              {dev.filter_status === 'NORMAL' && '🟢 ปกติ'}
+                              {dev.filter_status === 'DRY_ROAD' && '🟡 ถนนแห้ง'}
+                              {dev.filter_status === 'VEHICLE_BLOCKED' && '🚗 รถจอดทับ'}
+                              {dev.filter_status === 'POLE_SWAY_DAMPED' && '🟣 เสาแกว่ง'}
+                              {dev.filter_status === 'FLASH_FLOOD_BYPASS' && '⚡ น้ำขึ้นเร็ว'}
+                              {dev.filter_status === 'UNRESOLVABLE_OBSTRUCTION' && '🔴 ขวางถาวร'}
+                              {!['NORMAL','DRY_ROAD','VEHICLE_BLOCKED','POLE_SWAY_DAMPED','FLASH_FLOOD_BYPASS','UNRESOLVABLE_OBSTRUCTION'].includes(dev.filter_status) && dev.filter_status}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="py-4 px-4 text-slate-500 font-mono">
                         {dev.last_seen ? new Date(dev.last_seen).toLocaleString('th-TH') : 'N/A'}

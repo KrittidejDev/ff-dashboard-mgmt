@@ -4,7 +4,7 @@ import React from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
-import { LayoutDashboard, Users, AlertTriangle, LogOut, ShieldAlert, Cpu, Database, ClipboardList, AlertOctagon, Waves, Anchor, Bell, Zap, Lock } from 'lucide-react';
+import { LayoutDashboard, Users, AlertTriangle, LogOut, ShieldAlert, Cpu, Database, ClipboardList, AlertOctagon, Waves, Anchor, Bell, Zap, Lock, Activity } from 'lucide-react';
 
 export default function Sidebar() {
   const { user, logout } = useAuth();
@@ -79,6 +79,12 @@ export default function Sidebar() {
           name: 'Alert Logs',
           path: '/dashboard/river/history',
           icon: ClipboardList,
+          roles: ['SuperAdmin', 'Admin', 'user'],
+        },
+        {
+          name: 'Noise Audit Log',
+          path: '/dashboard/river/noise-audit',
+          icon: Activity,
           roles: ['SuperAdmin', 'Admin', 'user'],
         },
         {

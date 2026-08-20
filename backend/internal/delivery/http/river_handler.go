@@ -481,6 +481,47 @@ func (h *RiverHandler) SaveDeviceCalcConfig(c fiber.Ctx) error {
 	return c.JSON(retCfg)
 }
 
+func (h *RiverHandler) CalibrateDevice(c fiber.Ctx) error {
+	serial := c.Params("serial")
+	if serial == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Serial is required"})
+	}
+
+	type CalibrateReq struct {
+		TargetDistanceCM *float64 `json:"target_distance_cm,omitempty"`
+	}
+	var req CalibrateReq
+	_ = c.Bind().JSON(&req)
+
+	cfg, err := h.repo.CalibrateDeviceBaseline(c.Context(), serial, req.TargetDistanceCM)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	// Invalidate Redis caches used by ff-river-worker.
+	// Fix #2 (BUG): Worker reads config from key "config:{serial}" (see calc_worker.go:252).
+	// Previous key "ff:river:config:{serial}" was WRONG — DEL had zero effect on the worker cache.
+	// Also invalidate "filter:state:{serial}" so the Worker resets its trend state immediately,
+	// preventing stale IsFloodActive / ConsecutiveRisingSteps from persisting post-calibration.
+	if h.rdb != nil {
+		_ = h.rdb.Del(c.Context(),
+			"config:"+serial,        // Worker device config cache (correct key)
+			"filter:state:"+serial,  // Worker FilterState (reset trend on recalibration)
+			"current:"+serial,       // Dashboard real-time cache
+		).Err()
+	}
+
+	h.logger.Info("device calibrated to ground baseline successfully",
+		zap.String("serial", serial),
+		zap.Float64("bank_to_sensor_cm", cfg.BankToSensorCM),
+	)
+
+	return c.JSON(fiber.Map{
+		"message": "Device calibrated to ground baseline successfully",
+		"config":  cfg,
+	})
+}
+
 // ── Alert Thresholds Handlers ────────────────────────────────────────────────
 
 func (h *RiverHandler) triggerAlertEvaluation(ctx context.Context, serial string) {
@@ -1062,6 +1103,10 @@ var exportableColumnsMap = []struct {
 	{Key: "net_water_level_cm", Label: "ระดับน้ำสุทธิ (cm)", LabelEN: "Net Water Level (cm)", Category: "Telemetry & Sensor Data"},
 	{Key: "water_level_pct", Label: "ระดับน้ำ (%)", LabelEN: "Water Level (%)", Category: "Telemetry & Sensor Data"},
 	{Key: "level_cm", Label: "ระดับน้ำดิบจากเซ็นเซอร์ (cm)", LabelEN: "Raw Water Level (cm)", Category: "Telemetry & Sensor Data"},
+	{Key: "filtered_level_cm", Label: "ระดับน้ำหลังกรอง (cm)", LabelEN: "Filtered Level (cm)", Category: "Telemetry & Sensor Data"},
+	{Key: "filter_status", Label: "สถานะการกรอง (Filter Status)", LabelEN: "Filter Status", Category: "Telemetry & Sensor Data"},
+	{Key: "confidence_score", Label: "คะแนนความเชื่อมั่น (Confidence)", LabelEN: "Confidence Score", Category: "Telemetry & Sensor Data"},
+	{Key: "sensor_mode", Label: "โหมดเซ็นเซอร์", LabelEN: "Sensor Mode", Category: "Station Information"},
 	{Key: "warning_status", Label: "ระดับการเตือนภัย", LabelEN: "Alert Warning Status", Category: "Telemetry & Sensor Data"},
 	{Key: "connection_status", Label: "สถานะการเชื่อมต่อ", LabelEN: "Connection Status", Category: "Telemetry & Sensor Data"},
 	{Key: "last_seen", Label: "เวลาอัปเดตล่าสุด", LabelEN: "Last Telemetry Timestamp", Category: "System Metadata"},
@@ -1249,6 +1294,26 @@ func (h *RiverHandler) ExportDevicesCSV(c fiber.Ctx) error {
 				if dev.LevelCM != nil {
 					valStr = fmt.Sprintf("%.2f", *dev.LevelCM)
 				}
+			case "filtered_level_cm":
+				if dev.FilteredLevelCM != nil {
+					valStr = fmt.Sprintf("%.2f", *dev.FilteredLevelCM)
+				}
+			case "filter_status":
+				if dev.FilterStatus != nil {
+					valStr = *dev.FilterStatus
+				} else {
+					valStr = "NORMAL"
+				}
+			case "confidence_score":
+				if dev.ConfidenceScore != nil {
+					valStr = fmt.Sprintf("%.2f", *dev.ConfidenceScore)
+				}
+			case "sensor_mode":
+				if dev.SensorMode != nil {
+					valStr = *dev.SensorMode
+				} else {
+					valStr = "RIVER"
+				}
 			case "warning_status":
 				valStr = dev.WarningStatus
 				if valStr == "" {
@@ -1281,4 +1346,26 @@ func (h *RiverHandler) ExportDevicesCSV(c fiber.Ctx) error {
 
 	return nil
 }
+
+// ── Noise Audit Log Handler ─────────────────────────────────────────────────
+
+func (h *RiverHandler) GetNoiseAuditLogs(c fiber.Ctx) error {
+	serial := c.Query("serial")
+	eventType := c.Query("event_type")
+	limit, _ := strconv.Atoi(c.Query("limit", "50"))
+	offset, _ := strconv.Atoi(c.Query("offset", "0"))
+
+	logs, total, err := h.repo.GetNoiseAuditLogs(c.Context(), serial, eventType, limit, offset)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return c.JSON(fiber.Map{
+		"data":   logs,
+		"total":  total,
+		"limit":  limit,
+		"offset": offset,
+	})
+}
+
 

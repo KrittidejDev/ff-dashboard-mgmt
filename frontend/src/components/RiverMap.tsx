@@ -256,6 +256,34 @@ const createClusterIcon = (cluster: any) => {
                     )}
                   </>
                 )}
+
+                {/* Filter Engine Status Badge */}
+                {d.filter_status && (
+                  <div className="col-span-2 flex items-center justify-between bg-slate-100/70 rounded-lg p-1.5 border border-slate-200/60">
+                    <span className="text-slate-500 font-bold text-[9px]">Filter Status</span>
+                    <span className={`text-[9px] font-black px-2 py-0.5 rounded-full border ${
+                      d.filter_status === 'NORMAL'
+                        ? 'bg-emerald-50 border-emerald-250 text-emerald-700'
+                        : d.filter_status === 'DRY_ROAD'
+                        ? 'bg-amber-50 border-amber-250 text-amber-700'
+                        : d.filter_status === 'VEHICLE_BLOCKED'
+                        ? 'bg-sky-50 border-sky-250 text-sky-700'
+                        : d.filter_status === 'POLE_SWAY_DAMPED'
+                        ? 'bg-purple-50 border-purple-250 text-purple-700'
+                        : d.filter_status === 'FLASH_FLOOD_BYPASS'
+                        ? 'bg-rose-50 border-rose-250 text-rose-700 animate-pulse'
+                        : 'bg-slate-50 border-slate-250 text-slate-700'
+                    }`}>
+                      {d.filter_status === 'NORMAL' && '🟢 ปกติ'}
+                      {d.filter_status === 'DRY_ROAD' && '🟡 ถนนแห้ง'}
+                      {d.filter_status === 'VEHICLE_BLOCKED' && '🚗 รถจอดทับ'}
+                      {d.filter_status === 'POLE_SWAY_DAMPED' && '🟣 เสาแกว่ง'}
+                      {d.filter_status === 'FLASH_FLOOD_BYPASS' && '⚡ น้ำขึ้นเร็ว'}
+                      {d.filter_status === 'UNRESOLVABLE_OBSTRUCTION' && '🔴 ขวางถาวร'}
+                      {!['NORMAL','DRY_ROAD','VEHICLE_BLOCKED','POLE_SWAY_DAMPED','FLASH_FLOOD_BYPASS','UNRESOLVABLE_OBSTRUCTION'].includes(d.filter_status) && d.filter_status}
+                    </span>
+                  </div>
+                )}
               </div>
 
               {status === 'UNREGISTERED' ? (

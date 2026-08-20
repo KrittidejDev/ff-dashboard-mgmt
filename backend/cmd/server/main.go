@@ -244,9 +244,10 @@ func main() {
 	riverGroup.Get("/unregistered-serials", riverHandler.GetUnregisteredSerials)
 	riverGroup.Get("/unregistered-devices", riverHandler.GetUnregisteredDevices)
 
-	// Device Calc Config
+	// Device Calc Config & Calibration
 	riverGroup.Get("/devices/:serial/calc-config", riverHandler.GetDeviceCalcConfig)
 	riverGroup.Post("/devices/:serial/calc-config", riverHandler.SaveDeviceCalcConfig)
+	riverGroup.Post("/devices/:serial/calibrate", riverHandler.CalibrateDevice)
 
 	// Alert Thresholds
 	riverGroup.Get("/devices/:serial/thresholds", riverHandler.GetAlertThresholds)
@@ -280,6 +281,7 @@ func main() {
 	riverGroup.Get("/devices/:serial/current", riverHandler.GetLatestCurrentGroup)
 	riverGroup.Get("/devices/:serial/stats", riverHandler.GetHistoricalStats)
 	riverGroup.Get("/devices/:serial/warnings", riverHandler.GetWarningHistory)
+	riverGroup.Get("/noise-audit", riverHandler.GetNoiseAuditLogs)
 
 	// Settings
 	riverGroup.Get("/settings/:key", riverHandler.GetSetting)

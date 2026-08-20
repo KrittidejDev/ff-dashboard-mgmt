@@ -21,7 +21,8 @@ import {
   ChevronLeft,
   ChevronRight,
   ZoomIn,
-  ZoomOut
+  ZoomOut,
+  Target
 } from 'lucide-react';
 import Link from 'next/link';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine } from 'recharts';
@@ -35,6 +36,22 @@ const getProxiedImageUrl = (url: string) => {
   return `${API_BASE_URL}/river/images/proxy?url=${encodeURIComponent(url)}`;
 };
 
+// Fix #7: Proper type for device config — eliminates all `as any` casts below.
+interface DeviceConfig {
+  id?: number;
+  serial?: string;
+  sensor_mode?: string;          // 'RIVER' | 'SURFACE'
+  bottom_to_bank_cm?: number;
+  bank_to_sensor_cm?: number;
+  default_duration_sec?: number;
+  max_slew_rate_cm_per_sec?: number;
+  min_detectable_water_cm?: number;
+  vehicle_timeout_min?: number;
+  extra_config?: Record<string, unknown>;
+  created_at?: string;
+  updated_at?: string;
+}
+
 interface PageProps {
   params: Promise<{ serial: string }>;
 }
@@ -46,10 +63,11 @@ export default function DeviceDetailPage({ params }: PageProps) {
   // Core state
   const [device, setDevice] = useState<any>(null);
   const [thresholds, setThresholds] = useState<any[]>([]);
-  const [deviceConfig, setDeviceConfig] = useState<any>(null);
+  const [deviceConfig, setDeviceConfig] = useState<DeviceConfig | null>(null);
   const [allStats, setAllStats] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [showRawLine, setShowRawLine] = useState<boolean>(true);
 
   // Modal and Photo View States
   const [selectedLogForModal, setSelectedLogForModal] = useState<any>(null);
@@ -79,6 +97,34 @@ export default function DeviceDetailPage({ params }: PageProps) {
     sensor_mode: 'RIVER' as 'RIVER' | 'SURFACE',
   });
   const [savingConfig, setSavingConfig] = useState(false);
+
+  // Calibrate Modal State
+  const [showCalibrateModal, setShowCalibrateModal] = useState(false);
+  const [calibrating, setCalibrating] = useState(false);
+
+  const handleCalibrate = async () => {
+    setCalibrating(true);
+    try {
+      const res = await apiFetch(`${API_BASE_URL}/river/devices/${serial}/calibrate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      if (res.ok) {
+        alert('🎯 Calibrate ระดับพื้นเป็น 0 cm สำเร็จเรียบร้อย');
+        setShowCalibrateModal(false);
+        fetchDeviceMetadata();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(`เกิดข้อผิดพลาดในการ Calibrate: ${err.error || 'Unknown error'}`);
+      }
+    } catch (e) {
+      console.error(e);
+      alert('ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์เพื่อ Calibrate ได้');
+    } finally {
+      setCalibrating(false);
+    }
+  };
 
   // Device Meta Form State
   const [editingMeta, setEditingMeta] = useState(false);
@@ -430,16 +476,34 @@ export default function DeviceDetailPage({ params }: PageProps) {
 
   const chartData = React.useMemo(() => {
     const sorted = [...filteredStats].sort((a: any, b: any) => new Date(a.time).getTime() - new Date(b.time).getTime());
-    return sorted.map((point: any) => ({
-      label: resolution === 'daily'
-        ? new Date(point.time).toLocaleDateString('th-TH', { day: '2-digit', month: 'short' })
-        : new Date(point.time).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ' น.',
-      fullLabel: resolution === 'daily'
-        ? new Date(point.time).toLocaleDateString('th-TH', { day: '2-digit', month: 'short' }) + ' ' + new Date(point.time).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ' น.'
-        : new Date(point.time).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ' น.',
-      value: point.net_water_level_cm !== null && point.net_water_level_cm !== undefined ? parseFloat(point.net_water_level_cm.toFixed(1)) : null,
-    }));
-  }, [filteredStats, resolution]);
+    return sorted.map((point: any) => {
+      const rawDist = point.raw_level_cm !== null && point.raw_level_cm !== undefined ? point.raw_level_cm : point.level_cm;
+      let rawNet: number | null = null;
+      if (rawDist !== null && rawDist !== undefined && deviceConfig) {
+        const bottom = deviceConfig.bottom_to_bank_cm || 0;
+        const bank = deviceConfig.bank_to_sensor_cm || 0;
+        if (bottom > 0 || bank > 0) {
+          rawNet = (bottom + bank) - rawDist;
+          if (rawNet < 0) rawNet = 0;
+          rawNet = parseFloat(rawNet.toFixed(1));
+        }
+      }
+
+      return {
+        label: resolution === 'daily'
+          ? new Date(point.time).toLocaleDateString('th-TH', { day: '2-digit', month: 'short' })
+          : new Date(point.time).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ' น.',
+        fullLabel: resolution === 'daily'
+          ? new Date(point.time).toLocaleDateString('th-TH', { day: '2-digit', month: 'short' }) + ' ' + new Date(point.time).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ' น.'
+          : new Date(point.time).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ' น.',
+        value: point.net_water_level_cm !== null && point.net_water_level_cm !== undefined ? parseFloat(point.net_water_level_cm.toFixed(1)) : null,
+        rawValue: rawNet,
+        rawDistance: rawDist !== null && rawDist !== undefined ? parseFloat(rawDist.toFixed(1)) : null,
+        filteredDistance: point.filtered_level_cm !== null && point.filtered_level_cm !== undefined ? parseFloat(point.filtered_level_cm.toFixed(1)) : null,
+        filterStatus: point.filter_status || 'NORMAL',
+      };
+    });
+  }, [filteredStats, resolution, deviceConfig]);
 
   const tableData = React.useMemo(() => {
     if (logStats.length === 0) return [];
@@ -571,6 +635,52 @@ export default function DeviceDetailPage({ params }: PageProps) {
               <RefreshCw className="w-3 h-3 animate-spin" /> Live Syncing...
             </span>
           )}
+          {/* Status Badges */}
+          <div className="flex items-center gap-2">
+            <span className={`text-xs font-black px-2.5 py-1 rounded-xl border uppercase shadow-sm ${
+              (deviceConfig?.sensor_mode === 'SURFACE' || ((device as any)?.bottom_to_bank_cm === 0 && (device as any)?.bank_to_sensor_cm > 0))
+                ? 'bg-amber-50 border-amber-250 text-amber-800'
+                : 'bg-indigo-50 border-indigo-200 text-indigo-800'
+            }`}>
+              {(deviceConfig?.sensor_mode === 'SURFACE' || ((device as any)?.bottom_to_bank_cm === 0 && (device as any)?.bank_to_sensor_cm > 0)) ? '🚧 โหมด: พื้นถนน (SURFACE)' : '🌊 โหมด: แม่น้ำ/ลำน้ำ (RIVER)'}
+            </span>
+
+            {device?.filter_status && (
+              <span className={`text-xs font-black px-2.5 py-1 rounded-xl border uppercase shadow-sm ${
+                device.filter_status === 'NORMAL'
+                  ? 'bg-emerald-50 border-emerald-250 text-emerald-700'
+                  : device.filter_status === 'DRY_ROAD'
+                  ? 'bg-amber-50 border-amber-250 text-amber-700'
+                  : device.filter_status === 'VEHICLE_BLOCKED'
+                  ? 'bg-sky-50 border-sky-250 text-sky-700'
+                  : device.filter_status === 'POLE_SWAY_DAMPED'
+                  ? 'bg-purple-50 border-purple-250 text-purple-700'
+                  : device.filter_status === 'FLASH_FLOOD_BYPASS'
+                  ? 'bg-rose-50 border-rose-250 text-rose-700 animate-pulse'
+                  : 'bg-slate-50 border-slate-250 text-slate-700'
+              }`}>
+                {device.filter_status === 'NORMAL' && '🟢 สถานะตัวกรอง: ปกติ (NORMAL)'}
+                {device.filter_status === 'DRY_ROAD' && '🟡 สถานะตัวกรอง: ถนนแห้ง (DRY_ROAD)'}
+                {device.filter_status === 'VEHICLE_BLOCKED' && '🚗 สถานะตัวกรอง: รถจอดทับ (VEHICLE_BLOCKED)'}
+                {device.filter_status === 'POLE_SWAY_DAMPED' && '🟣 สถานะตัวกรอง: เสาแกว่ง (POLE_SWAY_DAMPED)'}
+                {device.filter_status === 'FLASH_FLOOD_BYPASS' && '⚡ สถานะตัวกรอง: น้ำขึ้นเร็ว (FLASH_FLOOD_BYPASS)'}
+                {device.filter_status === 'UNRESOLVABLE_OBSTRUCTION' && '🔴 สิ่งกีดขวางถาวร (UNRESOLVABLE)'}
+                {!['NORMAL','DRY_ROAD','VEHICLE_BLOCKED','POLE_SWAY_DAMPED','FLASH_FLOOD_BYPASS','UNRESOLVABLE_OBSTRUCTION'].includes(device.filter_status) && `Filter: ${device.filter_status}`}
+              </span>
+            )}
+          </div>
+
+          {(deviceConfig?.sensor_mode === 'SURFACE' || (deviceConfig?.bottom_to_bank_cm === 0 && (deviceConfig?.bank_to_sensor_cm ?? 0) > 0)) && (
+            <button
+              onClick={() => setShowCalibrateModal(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-amber-250 bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-black shadow-sm transition cursor-pointer"
+              title="Calibrate ระดับพื้นถนน/พื้นดินเป็น 0 cm จากระยะวัดจริง"
+            >
+              <Target className="w-3.5 h-3.5 text-amber-700" />
+              <span>Calibrate พื้นถนน (0 cm)</span>
+            </button>
+          )}
+
           <span className="text-[11px] text-slate-500 font-mono bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl">
             พิกัด: {device?.install_latitude ? parseFloat(device.install_latitude).toFixed(4) : 'N/A'}, {device?.install_longitude ? parseFloat(device.install_longitude).toFixed(4) : 'N/A'}
           </span>
@@ -588,8 +698,11 @@ export default function DeviceDetailPage({ params }: PageProps) {
           {deviceConfig?.sensor_mode !== 'SURFACE' && device?.water_level_pct !== undefined && device?.water_level_pct > 0 && (
             <span className="text-[10px] font-bold text-slate-500 block mt-1">คิดเป็น {device.water_level_pct.toFixed(1)}% ของความจุตลิ่ง</span>
           )}
+          {device?.filtered_level_cm !== undefined && device?.filtered_level_cm !== null && (
+            <span className="text-[10px] font-semibold text-indigo-600 block mt-1">Filtered: {device.filtered_level_cm.toFixed(1)} cm</span>
+          )}
           {device?.level_cm !== undefined && device?.level_cm !== null && (
-            <span className="text-[10px] text-slate-400 block mt-1">ค่าดิบเซ็นเซอร์: {device.level_cm.toFixed(2)} cm</span>
+            <span className="text-[10px] text-slate-400 block mt-0.5">ค่าดิบเซ็นเซอร์: {device.level_cm.toFixed(2)} cm</span>
           )}
         </div>
         <div className="bg-white border border-slate-200 p-5 rounded-2xl shadow-sm">
@@ -855,31 +968,67 @@ export default function DeviceDetailPage({ params }: PageProps) {
           }>
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
             <div className="flex flex-wrap items-center gap-3">
-              <div className="flex items-center space-x-3 bg-white border border-slate-200 px-3.5 py-1.5 rounded-xl">
+              <div className="flex items-center space-x-3 bg-white border border-slate-200 px-3.5 py-1.5 rounded-xl shadow-xs">
                 <Calendar className="w-4 h-4 text-slate-400" />
                 <span className="text-xs font-bold text-slate-500">เลือกวันที่:</span>
                 <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)}
                   className="text-xs font-bold text-slate-800 bg-transparent border-none focus:outline-none cursor-pointer" />
               </div>
+
+              {/* Raw Line Toggle Button */}
+              <button
+                type="button"
+                onClick={() => setShowRawLine(prev => !prev)}
+                className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold transition border cursor-pointer select-none ${
+                  showRawLine
+                    ? 'bg-amber-50 text-amber-800 border-amber-300 shadow-xs'
+                    : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'
+                }`}
+                title="กดเพื่อเปิด/ปิดการแสดงผลเส้นสัญญาณระดับน้ำดิบ (Raw)"
+              >
+                <span className={`w-2 h-2 rounded-full ${showRawLine ? 'bg-amber-500 animate-pulse' : 'bg-slate-300'}`} />
+                <span>{showRawLine ? '🟠 เส้นระดับน้ำดิบ (Raw): เปิด' : '⚪ เส้นระดับน้ำดิบ (Raw): ปิด'}</span>
+              </button>
             </div>
-            <div className="flex items-center flex-wrap gap-2 text-[10px] font-bold">
-              <span className="text-slate-400 mr-1">เกณฑ์แจ้งเตือน:</span>
-              {warningThresh!==undefined && (
-                <span className="bg-indigo-50 border border-indigo-150 text-indigo-650 px-2 py-0.5 rounded">
-                  Warning: &ge; {Number(warningThresh.toFixed(1))} cm
+
+            {/* Legend & Threshold Info */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+              {/* Line Legend Indicators */}
+              <div className="flex items-center gap-2 text-[11px] font-bold bg-slate-50 px-3 py-1 rounded-lg border border-slate-150">
+                <span className="flex items-center gap-1.5 text-indigo-700">
+                  <span className="w-2.5 h-2.5 rounded-full bg-indigo-600 inline-block shadow-xs" />
+                  คำนวณสุทธิ (Net)
                 </span>
-              )}
-              {criticalThresh!==undefined && (
-                <span className="bg-amber-50 border border-amber-250 text-amber-700 px-2 py-0.5 rounded">
-                  Critical: &ge; {Number(criticalThresh.toFixed(1))} cm
-                </span>
-              )}
-              {emergencyThresh!==undefined && (
-                <span className="bg-rose-50 border border-rose-250 text-rose-700 px-2 py-0.5 rounded">
-                  Emergency: &ge; {Number(emergencyThresh.toFixed(1))} cm
-                </span>
-              )}
-              {thresholds.length===0 && <span className="text-slate-400 italic">ไม่ได้กำหนดเกณฑ์สำหรับอุปกรณ์นี้</span>}
+                {showRawLine && (
+                  <>
+                    <span className="text-slate-300">|</span>
+                    <span className="flex items-center gap-1.5 text-amber-700">
+                      <span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block shadow-xs" />
+                      สัญญาณดิบ (Raw)
+                    </span>
+                  </>
+                )}
+              </div>
+
+              <div className="flex items-center flex-wrap gap-2 text-[10px] font-bold">
+                <span className="text-slate-400 mr-1">เกณฑ์:</span>
+                {warningThresh!==undefined && (
+                  <span className="bg-indigo-50 border border-indigo-150 text-indigo-650 px-2 py-0.5 rounded">
+                    Warning: &ge; {Number(warningThresh.toFixed(1))} cm
+                  </span>
+                )}
+                {criticalThresh!==undefined && (
+                  <span className="bg-amber-50 border border-amber-250 text-amber-700 px-2 py-0.5 rounded">
+                    Critical: &ge; {Number(criticalThresh.toFixed(1))} cm
+                  </span>
+                )}
+                {emergencyThresh!==undefined && (
+                  <span className="bg-rose-50 border border-rose-250 text-rose-700 px-2 py-0.5 rounded">
+                    Emergency: &ge; {Number(emergencyThresh.toFixed(1))} cm
+                  </span>
+                )}
+                {thresholds.length===0 && <span className="text-slate-400 italic">ไม่ได้กำหนดเกณฑ์สำหรับอุปกรณ์นี้</span>}
+              </div>
             </div>
           </div>
           <div className="h-[400px] w-full mt-4" style={{ minHeight: '400px' }}>
@@ -900,6 +1049,7 @@ export default function DeviceDetailPage({ params }: PageProps) {
                 warningThresh={warningThresh}
                 criticalThresh={criticalThresh}
                 emergencyThresh={emergencyThresh}
+                showRawLine={showRawLine}
               />
             )}
           </div>
@@ -921,17 +1071,19 @@ export default function DeviceDetailPage({ params }: PageProps) {
             <thead>
               <tr className="bg-slate-50 text-slate-500 border-b border-slate-200 font-semibold">
                 <th className="py-3.5 px-4"><Clock className="w-3.5 h-3.5 inline mr-1" />เวลาบันทึก</th>
-                <th className="py-3.5 px-4">ระดับน้ำที่คำนวณได้ (Net Level)</th>
+                <th className="py-3.5 px-4">ระดับน้ำสุทธิ (Net Level)</th>
+                <th className="py-3.5 px-4">ระยะวัดหลังกรอง (Filtered)</th>
                 <th className="py-3.5 px-4">เปอร์เซ็นต์ความจุตลิ่ง</th>
+                <th className="py-3.5 px-4">สถานะตัวกรอง (Filter)</th>
                 <th className="py-3.5 px-4">สถานะแจ้งเตือน</th>
                 <th className="py-3.5 px-4 text-center">รายละเอียด</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
               {loadingLogs ? (
-                <tr><td colSpan={5} className="py-6 text-center text-slate-400">กำลังดึงรายการตรวจวัดระดับน้ำ...</td></tr>
+                <tr><td colSpan={7} className="py-6 text-center text-slate-400">กำลังดึงรายการตรวจวัดระดับน้ำ...</td></tr>
               ) : tableData.length === 0 ? (
-                <tr><td colSpan={5} className="py-6 text-center text-slate-400">ไม่พบรายการตรวจวัดในช่วงที่เลือก</td></tr>
+                <tr><td colSpan={7} className="py-6 text-center text-slate-400">ไม่พบรายการตรวจวัดในช่วงที่เลือก</td></tr>
               ) : (
                 tableData.slice(0,visibleLogsCount).map((row:any,idx:number)=>{
                   let alertLevel='NORMAL';
@@ -953,7 +1105,40 @@ export default function DeviceDetailPage({ params }: PageProps) {
                           </span>
                         )}
                       </td>
+                      <td className="py-3 px-4 font-mono font-bold text-slate-700">
+                        {row.filtered_level_cm !== undefined && row.filtered_level_cm !== null 
+                          ? `${row.filtered_level_cm.toFixed(1)} cm`
+                          : (row.level_cm !== undefined && row.level_cm !== null ? `${row.level_cm.toFixed(1)} cm` : 'N/A')}
+                        {row.confidence_score !== undefined && row.confidence_score !== null && (
+                          <span className="text-[10px] text-slate-400 block font-normal">
+                            Conf: {(row.confidence_score * 100).toFixed(0)}%
+                          </span>
+                        )}
+                      </td>
                       <td className="py-3 px-4 font-mono font-semibold text-slate-900">{row.water_level_pct?.toFixed(1)}%</td>
+                      <td className="py-3 px-4">
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold border ${
+                          row.filter_status === 'NORMAL' || !row.filter_status
+                            ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                            : row.filter_status === 'DRY_ROAD'
+                            ? 'bg-amber-50 border-amber-200 text-amber-700'
+                            : row.filter_status === 'VEHICLE_BLOCKED'
+                            ? 'bg-sky-50 border-sky-250 text-sky-700'
+                            : row.filter_status === 'POLE_SWAY_DAMPED'
+                            ? 'bg-purple-50 border-purple-200 text-purple-700'
+                            : row.filter_status === 'FLASH_FLOOD_BYPASS'
+                            ? 'bg-rose-50 border-rose-250 text-rose-700 animate-pulse'
+                            : 'bg-slate-50 border-slate-200 text-slate-700'
+                        }`}>
+                          {row.filter_status === 'NORMAL' && '🟢 NORMAL'}
+                          {row.filter_status === 'DRY_ROAD' && '🟡 DRY_ROAD'}
+                          {row.filter_status === 'VEHICLE_BLOCKED' && '🚗 VEHICLE'}
+                          {row.filter_status === 'POLE_SWAY_DAMPED' && '🟣 POLE_SWAY'}
+                          {row.filter_status === 'FLASH_FLOOD_BYPASS' && '⚡ BYPASS'}
+                          {row.filter_status === 'UNRESOLVABLE_OBSTRUCTION' && '🔴 BLOCKED'}
+                          {!row.filter_status && '🟢 NORMAL'}
+                        </span>
+                      </td>
                       <td className="py-3 px-4">
                         <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold border ${getStatusBadgeClass(alertLevel)}`}>
                           <span className={`w-1 h-1 rounded-full bg-white ${alertLevel!=='NORMAL'?'animate-pulse':''}`} /> {alertLevel}
@@ -994,8 +1179,8 @@ export default function DeviceDetailPage({ params }: PageProps) {
               <button onClick={()=>setSelectedLogForModal(null)} className="p-2 rounded-xl text-slate-400 hover:text-slate-655 transition"><X className="w-5 h-5" /></button>
             </div>
             <div className="p-6 overflow-y-auto space-y-6">
-              <div className="grid grid-cols-3 gap-4">
-                <div className="bg-slate-50 border border-slate-100 p-4 rounded-2xl">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="bg-slate-50 border border-slate-100 p-3.5 rounded-2xl">
                   <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">ระดับน้ำคำนวณ</span>
                   <div className="flex items-baseline gap-1 mt-1">
                     <span className="text-xl font-extrabold text-indigo-650 font-mono">{selectedLogForModal.net_water_level_cm?.toFixed(1)||'N/A'}</span>
@@ -1005,14 +1190,28 @@ export default function DeviceDetailPage({ params }: PageProps) {
                     <span className="text-[10px] text-slate-400 block mt-0.5">Raw: {selectedLogForModal.level_cm.toFixed(2)} cm</span>
                   )}
                 </div>
-                <div className="bg-slate-50 border border-slate-100 p-4 rounded-2xl">
+                <div className="bg-slate-50 border border-slate-100 p-3.5 rounded-2xl">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Filtered Level</span>
+                  <div className="flex items-baseline gap-1 mt-1">
+                    <span className="text-xl font-extrabold text-slate-800 font-mono">
+                      {selectedLogForModal.filtered_level_cm !== undefined && selectedLogForModal.filtered_level_cm !== null 
+                        ? selectedLogForModal.filtered_level_cm.toFixed(1) 
+                        : (selectedLogForModal.level_cm?.toFixed(1) || 'N/A')}
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-bold">cm</span>
+                  </div>
+                  {selectedLogForModal.confidence_score !== undefined && selectedLogForModal.confidence_score !== null && (
+                    <span className="text-[10px] text-slate-400 block mt-0.5">Conf: {(selectedLogForModal.confidence_score * 100).toFixed(0)}%</span>
+                  )}
+                </div>
+                <div className="bg-slate-50 border border-slate-100 p-3.5 rounded-2xl">
                   <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">ความจุตลิ่ง</span>
                   <div className="flex items-baseline gap-1 mt-1">
                     <span className="text-xl font-extrabold text-slate-800 font-mono">{selectedLogForModal.water_level_pct?.toFixed(1)||'N/A'}</span>
                     <span className="text-[10px] text-slate-400 font-bold">%</span>
                   </div>
                 </div>
-                <div className="bg-slate-50 border border-slate-100 p-4 rounded-2xl">
+                <div className="bg-slate-50 border border-slate-100 p-3.5 rounded-2xl">
                   <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">สถานะเตือนภัย</span>
                   <div className="mt-1">
                     {(()=>{
@@ -1047,6 +1246,84 @@ export default function DeviceDetailPage({ params }: PageProps) {
               <button onClick={()=>setSelectedLogForModal(null)}
                 className="py-2 px-4 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 hover:text-slate-700 text-xs font-bold transition shadow-sm">
                 ปิดหน้าต่าง
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Zero-Ground Calibrate Modal */}
+      {showCalibrateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 space-y-5">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-indigo-50 flex items-center justify-center text-indigo-650">
+                  <Target className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900">Calibrate ระดับพื้นถนน / ศูนย์ (Zero Calibration)</h3>
+                  <p className="text-xs text-slate-400 font-medium">สถานี: {device?.name || serial} ({serial})</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowCalibrateModal(false)}
+                className="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3 bg-slate-50 p-4 rounded-2xl border border-slate-200/80 text-xs">
+              <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                <span className="text-slate-500 font-medium">ระยะวัดเรดาร์ปัจจุบัน (Raw / Filtered):</span>
+                <span className="font-mono font-bold text-slate-800 text-sm">
+                  {device?.filtered_level_cm !== undefined && device?.filtered_level_cm !== null 
+                    ? `${device.filtered_level_cm.toFixed(1)} cm` 
+                    : (device?.level_cm ? `${device.level_cm.toFixed(1)} cm` : 'N/A')}
+                </span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                <span className="text-slate-500 font-medium">ความสูงเสาที่ตั้งไว้เดิม (bank_to_sensor):</span>
+                <span className="font-mono font-bold text-slate-600">
+                  {deviceConfig?.bank_to_sensor_cm ? `${deviceConfig.bank_to_sensor_cm} cm` : '0 cm'}
+                </span>
+              </div>
+              <div className="flex justify-between items-center py-1 text-emerald-700 bg-emerald-50/60 p-2 rounded-xl border border-emerald-200">
+                <span className="font-bold">🎯 ผลลัพธ์หลัง Calibrate:</span>
+                <span className="font-bold font-mono">ระดับน้ำสุทธิจะกลายเป็น 0.0 cm ทันที</span>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-500 leading-relaxed">
+              ⚠️ <strong>ข้อแนะนำ:</strong> โปรดตรวจสอบภาพจากกล้องวงจรปิดด้านซ้ายมือให้แน่ใจว่า <strong>พื้นถนน/พื้นดินแห้งสนิทจริง และไม่มีรถยนต์หรือสิ่งของกีดขวางอยู่ใต้เสา</strong> ก่อนกดยืนยัน
+            </p>
+
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowCalibrateModal(false)}
+                className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-xs hover:bg-slate-50 transition"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                disabled={calibrating}
+                onClick={handleCalibrate}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-md transition disabled:opacity-50"
+              >
+                {calibrating ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>กำลัง Calibrate...</span>
+                  </>
+                ) : (
+                  <>
+                    <Target className="w-3.5 h-3.5" />
+                    <span>ยืนยัน Calibrate เป็น 0 cm</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

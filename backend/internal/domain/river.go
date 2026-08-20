@@ -35,6 +35,10 @@ type RiverDevice struct {
 	LevelCM             *float64   `json:"level_cm,omitempty"`
 	NetWaterLevelCM     *float64   `json:"net_water_level_cm,omitempty"`
 	WaterLevelPct       *float64   `json:"water_level_pct,omitempty"`
+	FilteredLevelCM     *float64   `json:"filtered_level_cm,omitempty"`
+	FilterStatus        *string    `json:"filter_status,omitempty"`
+	ConfidenceScore     *float64   `json:"confidence_score,omitempty"`
+	SensorMode          *string    `json:"sensor_mode,omitempty"`
 	CreatedAt           time.Time  `json:"created_at"`
 	UpdatedAt           time.Time  `json:"updated_at"`
 	WarningStatus       string     `json:"warning_status,omitempty"`
@@ -86,6 +90,9 @@ type CurrentGroup struct {
 	DurationSec       int                    `json:"duration_sec"`
 	NetWaterLevelCM   *float64               `json:"net_water_level_cm"`
 	WaterLevelPct     *float64               `json:"water_level_pct"`
+	FilteredLevelCM   *float64               `json:"filtered_level_cm,omitempty"`
+	FilterStatus      string                 `json:"filter_status,omitempty"`
+	ConfidenceScore   float64                `json:"confidence_score,omitempty"`
 	UpdatedAt         time.Time              `json:"updated_at"`
 }
 
@@ -106,20 +113,44 @@ type CurrentStat struct {
 	FrequencyResponse map[string]interface{} `json:"frequency_response"`
 	NetWaterLevelCM   *float64               `json:"net_water_level_cm"`
 	WaterLevelPct     *float64               `json:"water_level_pct"`
+	RawLevelCM        *float64               `json:"raw_level_cm,omitempty"`
+	FilteredLevelCM   *float64               `json:"filtered_level_cm,omitempty"`
+	ConfidenceScore   *float64               `json:"confidence_score,omitempty"`
+	DQFlags           *int                   `json:"dq_flags,omitempty"`
+	FilterStatus      *string                `json:"filter_status,omitempty"`
+	IsValidForAlert   *bool                  `json:"is_valid_for_alert,omitempty"`
 	CreatedAt         time.Time              `json:"created_at"`
 }
 
 // DeviceCalcConfig represents river_device_config in database
 type DeviceCalcConfig struct {
-	ID                 int                    `json:"id"`
-	Serial             string                 `json:"serial" validate:"required,max=50"`
-	BottomToBankCM     float64                `json:"bottom_to_bank_cm"`
-	BankToSensorCM     float64                `json:"bank_to_sensor_cm"`
-	DefaultDurationSec int                    `json:"default_duration_sec"`
-	SensorMode         string                 `json:"sensor_mode"`
-	ExtraConfig        map[string]interface{} `json:"extra_config"`
-	CreatedAt          time.Time              `json:"created_at"`
-	UpdatedAt          time.Time              `json:"updated_at"`
+	ID                  int                    `json:"id"`
+	Serial              string                 `json:"serial" validate:"required,max=50"`
+	BottomToBankCM      float64                `json:"bottom_to_bank_cm"`
+	BankToSensorCM      float64                `json:"bank_to_sensor_cm"`
+	DefaultDurationSec  int                    `json:"default_duration_sec"`
+	SensorMode          string                 `json:"sensor_mode"`
+	MaxSlewRateCMPerSec *float64               `json:"max_slew_rate_cm_per_sec,omitempty"`
+	MinDetectableWaterCM *float64              `json:"min_detectable_water_cm,omitempty"`
+	VehicleTimeoutMin   *int                   `json:"vehicle_timeout_min,omitempty"`
+	ExtraConfig         map[string]interface{} `json:"extra_config"`
+	CreatedAt           time.Time              `json:"created_at"`
+	UpdatedAt           time.Time              `json:"updated_at"`
+}
+
+// NoiseAuditLog represents river_noise_audit_log in database
+type NoiseAuditLog struct {
+	ID              int64                  `json:"id"`
+	RecordedAt      time.Time              `json:"recorded_at"`
+	Serial          string                 `json:"serial"`
+	EventType       string                 `json:"event_type"`
+	RawLevelCM      *float64               `json:"raw_level_cm"`
+	FilteredLevelCM *float64               `json:"filtered_level_cm"`
+	SlewRateCMS     *float64               `json:"slew_rate_cm_s"`
+	DQFlags         int                    `json:"dq_flags"`
+	ConfidenceScore float64                `json:"confidence_score"`
+	SnapshotURL0    string                 `json:"snapshot_url0"`
+	Detail          map[string]interface{} `json:"detail"`
 }
 
 // AlertThreshold represents river_alert_threshold in database
@@ -245,6 +276,7 @@ type RiverRepository interface {
 	// Config
 	GetDeviceCalcConfig(ctx context.Context, serial string) (*DeviceCalcConfig, error)
 	SaveDeviceCalcConfig(ctx context.Context, cfg *DeviceCalcConfig) error
+	CalibrateDeviceBaseline(ctx context.Context, serial string, targetDistanceCM *float64) (*DeviceCalcConfig, error)
 	UpdateWaterLevel(ctx context.Context, serial string, netCM, pct float64) error
 
 	// Alert Thresholds
@@ -283,6 +315,9 @@ type RiverRepository interface {
 	GetLatestCurrentGroup(ctx context.Context, serial string) (*CurrentGroup, error)
 	GetHistoricalStats(ctx context.Context, serial string, start, end time.Time) ([]*CurrentStat, error)
 	GetWarningHistory(ctx context.Context, serial string, limit int) ([]*WarningHistory, error)
+
+	// Noise Audit Log
+	GetNoiseAuditLogs(ctx context.Context, serial string, eventType string, limit, offset int) ([]*NoiseAuditLog, int, error)
 
 	// Health Check
 	Ping(ctx context.Context) error

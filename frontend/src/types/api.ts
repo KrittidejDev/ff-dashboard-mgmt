@@ -16,11 +16,17 @@ export interface RiverDevice {
   cctv_path_1?: string;
   cctv_path_2?: string;
   last_seen?: string;
+  level_cm?: number;
   net_water_level_cm?: number;
   water_level_pct?: number;
+  filtered_level_cm?: number;
+  filter_status?: string;
+  confidence_score?: number;
+  sensor_mode?: string;
   warning_status?: string;
   offline_threshold_min?: number;
   official_page_id?: string;
+  bottom_to_bank_cm?: number;
 }
 
 export interface AlertThreshold {
@@ -38,6 +44,13 @@ export interface TelemetryStats {
   serial?: string;
   net_water_level_cm?: number;
   water_level_pct?: number;
+  level_cm?: number;
+  raw_level_cm?: number;
+  filtered_level_cm?: number;
+  confidence_score?: number;
+  dq_flags?: number;
+  filter_status?: string;
+  is_valid_for_alert?: boolean;
   raw_distance_cm?: number;
   snapshot_url0?: string;
   snapshot_url1?: string;
@@ -49,7 +62,25 @@ export interface CalcConfig {
   bottom_to_bank_cm: number;
   bank_to_sensor_cm: number;
   default_duration_sec: number;
+  sensor_mode?: string;
+  max_slew_rate_cm_per_sec?: number | null;
+  min_detectable_water_cm?: number | null;
+  vehicle_timeout_min?: number | null;
   extra_config?: Record<string, unknown>;
+}
+
+export interface NoiseAuditLog {
+  id: number;
+  recorded_at: string;
+  serial: string;
+  event_type: string;
+  raw_level_cm?: number;
+  filtered_level_cm?: number;
+  slew_rate_cm_s?: number;
+  dq_flags?: number;
+  confidence_score?: number;
+  snapshot_url0?: string;
+  detail?: Record<string, any>;
 }
 
 export interface ThresholdFormEntry {

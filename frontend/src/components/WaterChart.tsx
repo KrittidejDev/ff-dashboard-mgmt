@@ -5,6 +5,7 @@ import {
   ResponsiveContainer,
   AreaChart,
   Area,
+  Line,
   XAxis,
   YAxis,
   Tooltip,
@@ -15,13 +16,24 @@ import {
 } from "recharts";
 import { ZoomIn, ZoomOut, RotateCcw } from "lucide-react";
 
+export interface WaterChartDataItem {
+  label: string;
+  fullLabel: string;
+  value: number | null;
+  rawValue?: number | null;
+  rawDistance?: number | null;
+  filteredDistance?: number | null;
+  filterStatus?: string;
+}
+
 interface WaterChartProps {
-  data: Array<{ label: string; fullLabel: string; value: number | null }>;
+  data: WaterChartDataItem[];
   height?: number;
   warningThresh?: number;
   criticalThresh?: number;
   emergencyThresh?: number;
   gradientId?: string;
+  showRawLine?: boolean;
 }
 
 const ChartBase = React.memo(function ChartBase({
@@ -32,20 +44,22 @@ const ChartBase = React.memo(function ChartBase({
   warningThresh,
   criticalThresh,
   emergencyThresh,
+  showRawLine = true,
 }: {
-  data: Array<{ label: string; fullLabel: string; value: number | null }>;
+  data: WaterChartDataItem[];
   yMin: number;
   yMax: number;
   gradientId: string;
   warningThresh?: number;
   criticalThresh?: number;
   emergencyThresh?: number;
+  showRawLine?: boolean;
 }) {
   return (
     <>
       <defs>
         <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.15} />
+          <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.18} />
           <stop offset="95%" stopColor="#4f46e5" stopOpacity={0.0} />
         </linearGradient>
       </defs>
@@ -83,17 +97,37 @@ const ChartBase = React.memo(function ChartBase({
         />
       )}
 
+      {/* Raw Water Level Line (Dashed Amber/Orange) */}
+      {showRawLine && (
+        <Line
+          type="monotone"
+          dataKey="rawValue"
+          stroke="#f59e0b"
+          strokeWidth={1.75}
+          strokeDasharray="4 3"
+          dot={{ r: 4, strokeWidth: 1.5, fill: '#f59e0b', stroke: '#ffffff' }}
+          activeDot={{ r: 6, strokeWidth: 2, fill: '#f59e0b', stroke: '#ffffff' }}
+          isAnimationActive={true}
+          animationDuration={300}
+          connectNulls={true}
+          name="ระดับน้ำดิบ (Raw)"
+        />
+      )}
+
+      {/* Main Calculated Net Water Level Area (Solid Indigo) */}
       <Area
         type="monotone"
         dataKey="value"
         stroke="#4f46e5"
-        strokeWidth={2}
+        strokeWidth={2.25}
         fillOpacity={1}
         fill={`url(#${gradientId})`}
         isAnimationActive={true}
         animationDuration={300}
-        dot={{ r: 5.5, strokeWidth: 1.5, fill: '#4f46e5', stroke: '#ffffff' }}
-        activeDot={{ r: 7.5, strokeWidth: 0, fill: '#4f46e5' }}
+        connectNulls={true}
+        dot={{ r: 5, strokeWidth: 1.5, fill: '#4f46e5', stroke: '#ffffff' }}
+        activeDot={{ r: 7.5, strokeWidth: 2, fill: '#4f46e5', stroke: '#ffffff' }}
+        name="ระดับน้ำคำนวณ (Net)"
       />
     </>
   );
@@ -104,7 +138,8 @@ const ChartBase = React.memo(function ChartBase({
     && prev.gradientId === next.gradientId
     && prev.warningThresh === next.warningThresh
     && prev.criticalThresh === next.criticalThresh
-    && prev.emergencyThresh === next.emergencyThresh;
+    && prev.emergencyThresh === next.emergencyThresh
+    && prev.showRawLine === next.showRawLine;
 });
 
 export function WaterChart({
@@ -113,7 +148,8 @@ export function WaterChart({
   warningThresh,
   criticalThresh,
   emergencyThresh,
-  gradientId = "waterChartGradient"
+  gradientId = "waterChartGradient",
+  showRawLine = true,
 }: WaterChartProps) {
   const [isMounted, setIsMounted] = useState(false);
   useEffect(() => {
@@ -200,12 +236,25 @@ export function WaterChart({
       label: pt.label,
       fullLabel: pt.fullLabel,
       value: pt.value,
+      rawValue: pt.rawValue,
+      rawDistance: pt.rawDistance,
+      filterStatus: pt.filterStatus,
     };
   }, [processedData, safeSelectedIdx]);
 
   const { yMin, yMax } = useMemo(() => {
     if (!processedData || processedData.length === 0) return { yMin: 0, yMax: 100 };
     const values = processedData.map(d => d.value).filter((v): v is number => v !== null && !isNaN(v));
+    
+    // Include raw values in bounds calculation if raw line is displayed
+    if (showRawLine) {
+      processedData.forEach(d => {
+        if (d.rawValue !== null && d.rawValue !== undefined && !isNaN(d.rawValue)) {
+          values.push(d.rawValue);
+        }
+      });
+    }
+
     if (values.length === 0) return { yMin: 0, yMax: 100 };
     
     let minVal = Math.min(...values);
@@ -224,7 +273,7 @@ export function WaterChart({
       yMin: Math.max(0, minVal - padding),
       yMax: maxVal + padding,
     };
-  }, [processedData, warningThresh, criticalThresh, emergencyThresh]);
+  }, [processedData, warningThresh, criticalThresh, emergencyThresh, showRawLine]);
 
   const handleChartClick = useCallback((state: any) => {
     if (mouseMovedRef.current) return;
@@ -369,7 +418,7 @@ export function WaterChart({
           >
             <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
               <AreaChart
-                key={zoomLevel}
+                key={`${zoomLevel}_${showRawLine}`}
                 data={processedData}
                 margin={{ top: 15, right: 25, left: 10, bottom: 35 }}
                 onClick={handleChartClick}
@@ -382,26 +431,69 @@ export function WaterChart({
                   warningThresh={warningThresh}
                   criticalThresh={criticalThresh}
                   emergencyThresh={emergencyThresh}
+                  showRawLine={showRawLine}
                 />
                 <Tooltip
                   trigger="click"
                   active={safeSelectedIdx !== null ? true : undefined}
                   defaultIndex={safeSelectedIdx ?? undefined}
-                  cursor={{ stroke: "#4f46e5", strokeWidth: 2, strokeDasharray: "4 3" }}
-                  contentStyle={{
-                    borderRadius: "12px",
-                    border: "1px solid #bfdbfe",
-                    backgroundColor: "#eff6ff",
-                    fontSize: "11px",
-                    fontWeight: 700,
-                    color: "#1e40af",
-                    boxShadow: "0 4px 12px rgba(79, 70, 229, 0.15)",
+                  cursor={{ stroke: "#4f46e5", strokeWidth: 1.5, strokeDasharray: "4 3" }}
+                  content={({ active, payload, label }) => {
+                    if (!payload || payload.length === 0) return null;
+                    const dataPoint = payload[0]?.payload as WaterChartDataItem | undefined;
+                    if (!dataPoint) return null;
+
+                    const netVal = dataPoint.value;
+                    const rawVal = dataPoint.rawValue;
+                    const rawDist = dataPoint.rawDistance;
+                    const filterStatus = dataPoint.filterStatus || 'NORMAL';
+
+                    return (
+                      <div className="rounded-xl border border-indigo-100 bg-white/95 backdrop-blur-sm p-3 shadow-xl text-xs space-y-2 min-w-[210px]">
+                        <div className="font-bold text-slate-700 border-b border-slate-100 pb-1 flex items-center justify-between gap-2">
+                          <span className="truncate">⏰ {dataPoint.fullLabel || label}</span>
+                          {filterStatus && (
+                            <span className={`text-[9px] px-1.5 py-0.5 rounded font-black shrink-0 ${
+                              filterStatus === 'DRY_ROAD' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
+                              filterStatus === 'VEHICLE_BLOCKED' ? 'bg-rose-50 text-rose-700 border border-rose-200' :
+                              filterStatus === 'FLASH_FLOOD_BYPASS' ? 'bg-indigo-100 text-indigo-800 border border-indigo-300 animate-pulse' :
+                              'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                            }`}>
+                              {filterStatus}
+                            </span>
+                          )}
+                        </div>
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="flex items-center gap-1.5 font-bold text-indigo-700">
+                              <span className="w-2 h-2 rounded-full bg-indigo-600 inline-block" />
+                              ระดับน้ำคำนวณ (Net):
+                            </span>
+                            <span className="font-black text-indigo-900 font-mono text-sm">
+                              {netVal !== null && netVal !== undefined ? `${netVal.toFixed(1)} cm` : '-'}
+                            </span>
+                          </div>
+                          {rawVal !== null && rawVal !== undefined && (
+                            <div className="flex items-center justify-between gap-3 text-slate-600">
+                              <span className="flex items-center gap-1.5 font-semibold text-amber-700">
+                                <span className="w-2 h-2 rounded-full bg-amber-500 inline-block" />
+                                ระดับน้ำดิบ (Raw):
+                              </span>
+                              <span className="font-bold text-amber-900 font-mono">
+                                {`${rawVal.toFixed(1)} cm`}
+                              </span>
+                            </div>
+                          )}
+                          {rawDist !== null && rawDist !== undefined && (
+                            <div className="text-[10px] text-slate-400 font-mono pt-1 border-t border-slate-100 flex justify-between">
+                              <span>ระยะเซ็นเซอร์ดิบ:</span>
+                              <span>{`${rawDist.toFixed(1)} cm`}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
                   }}
-                  labelFormatter={(label, payload) => {
-                    const matched = payload?.[0]?.payload;
-                    return matched ? matched.fullLabel : String(label);
-                  }}
-                  formatter={(value) => [`${Number(value).toFixed(1)} cm`, "ระดับน้ำคำนวณ (Net)"]}
                 />
 
                 {selectedPoint && selectedPoint.value !== null && (
