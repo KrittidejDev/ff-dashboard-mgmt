@@ -28,6 +28,7 @@ func (r *fahfonRepository) GetDevices(ctx context.Context, search string, sortBy
 		SELECT dm.id, 
 		       COALESCE(dm.mongo_id, '') AS mongo_id, 
 		       COALESCE(dm.station, '') AS station, 
+		       COALESCE(dm.serial, '') AS serial, 
 		       COALESCE(dm.imei, '') AS imei, 
 		       COALESCE(dm.owner, '') AS owner, 
 		       COALESCE(dm.email, '') AS email, 
@@ -76,7 +77,7 @@ func (r *fahfonRepository) GetDevices(ctx context.Context, search string, sortBy
 	var conditions []string
 
 	if search != "" {
-		conditions = append(conditions, fmt.Sprintf("(dm.station ILIKE $%d OR dm.imei ILIKE $%d OR dm.owner ILIKE $%d OR dm.site ILIKE $%d OR dm.email ILIKE $%d)", len(args)+1, len(args)+1, len(args)+1, len(args)+1, len(args)+1))
+		conditions = append(conditions, fmt.Sprintf("(dm.station ILIKE $%d OR dm.serial ILIKE $%d OR dm.imei ILIKE $%d OR dm.owner ILIKE $%d OR dm.site ILIKE $%d OR dm.email ILIKE $%d)", len(args)+1, len(args)+1, len(args)+1, len(args)+1, len(args)+1, len(args)+1))
 		args = append(args, "%"+search+"%")
 	}
 
@@ -125,6 +126,7 @@ func (r *fahfonRepository) GetDevices(ctx context.Context, search string, sortBy
 			&dm.ID,
 			&dm.MongoID,
 			&dm.Station,
+			&dm.Serial,
 			&dm.Imei,
 			&dm.Owner,
 			&dm.Email,
@@ -213,6 +215,7 @@ func (r *fahfonRepository) GetDeviceDetail(ctx context.Context, station string) 
 		SELECT id, 
 		       COALESCE(mongo_id, '') AS mongo_id, 
 		       COALESCE(station, '') AS station, 
+		       COALESCE(serial, '') AS serial, 
 		       COALESCE(imei, '') AS imei, 
 		       COALESCE(owner, '') AS owner, 
 		       COALESCE(email, '') AS email, 
@@ -225,13 +228,14 @@ func (r *fahfonRepository) GetDeviceDetail(ctx context.Context, station string) 
 		       COALESCE(uuid::text, '') AS uuid,
 		       COALESCE(account_id, '') AS account_id
 		FROM device_master
-		WHERE uuid::text = $1 OR station = $1 OR imei = $1 OR imei = (SELECT imei FROM fahfon_current WHERE device_id = $1 LIMIT 1) LIMIT 1
+		WHERE uuid::text = $1 OR station = $1 OR imei = $1 OR serial = $1 OR imei = (SELECT imei FROM fahfon_current WHERE device_id = $1 LIMIT 1) LIMIT 1
 	`
 	var dm domain.FahfonDeviceMaster
 	err := r.pool.QueryRow(ctx, dmQuery, station).Scan(
 		&dm.ID,
 		&dm.MongoID,
 		&dm.Station,
+		&dm.Serial,
 		&dm.Imei,
 		&dm.Owner,
 		&dm.Email,
@@ -257,10 +261,12 @@ func (r *fahfonRepository) GetDeviceDetail(ctx context.Context, station string) 
 		       temp, humid, press, wind_speed, wind_direction, rain_rate, rain_hourly, rain_daily,
 		       uv, co2, pm1, pm25, pm40, pm10, r_inten, g_inten, b_inten, n_inten, l_inten, updated_at
 		FROM fahfon_current
-		WHERE imei = $1 LIMIT 1
+		WHERE (imei = $1 AND imei != '') OR device_id = $2 OR device_id = $3
+		ORDER BY time_onsite DESC
+		LIMIT 1
 	`
 	var fc domain.FahfonCurrent
-	err = r.pool.QueryRow(ctx, fcQuery, dm.Imei).Scan(
+	err = r.pool.QueryRow(ctx, fcQuery, dm.Imei, dm.Station, dm.Serial).Scan(
 		&fc.DeviceID,
 		&fc.Time,
 		&fc.TimeOnsite,
@@ -338,6 +344,7 @@ func (r *fahfonRepository) GetDeviceHistory(ctx context.Context, deviceID string
 	}
 
 	var query string
+	searchPattern := "%" + deviceID + "%"
 	if rangeType == "hourly" {
 		query = `
 			SELECT time AS bucket_time,
@@ -349,7 +356,7 @@ func (r *fahfonRepository) GetDeviceHistory(ctx context.Context, deviceID string
 			       uv, co2, pm1, pm25, pm40, pm10,
 			       r_inten, g_inten, b_inten, n_inten, l_inten
 			FROM fahfon_current_stat
-			WHERE device_id = $1 AND time BETWEEN $2 AND $3
+			WHERE (device_id = $1 OR imei = $1 OR device_id ILIKE $4) AND time BETWEEN $2 AND $3
 			ORDER BY bucket_time DESC
 			LIMIT 1000
 		`
@@ -364,14 +371,14 @@ func (r *fahfonRepository) GetDeviceHistory(ctx context.Context, deviceID string
 			       AVG(uv) AS uv, AVG(co2) AS co2, AVG(pm1) AS pm1, AVG(pm25) AS pm25, AVG(pm40) AS pm40, AVG(pm10) AS pm10,
 			       AVG(r_inten) AS r_inten, AVG(g_inten) AS g_inten, AVG(b_inten) AS b_inten, AVG(n_inten) AS n_inten, AVG(l_inten) AS l_inten
 			FROM fahfon_current_stat
-			WHERE device_id = $1 AND time BETWEEN $2 AND $3
+			WHERE (device_id = $1 OR imei = $1 OR device_id ILIKE $4) AND time BETWEEN $2 AND $3
 			GROUP BY bucket_time
 			ORDER BY bucket_time DESC
 			LIMIT 1000
 		`, truncateUnit)
 	}
 
-	rows, err := r.pool.Query(ctx, query, deviceID, start, end)
+	rows, err := r.pool.Query(ctx, query, deviceID, start, end, searchPattern)
 	if err != nil {
 		return nil, fmt.Errorf("db: get device history aggregated: %w", err)
 	}

@@ -121,7 +121,7 @@ export default function DeviceDetailPage() {
     );
   }
 
-  const isOnline = metadata.status === 'ACTIVE';
+  const isOnline = metadata.status === 'ACTIVE' || metadata.status === 'ONLINE';
 
   const refreshButton = (
     <button
@@ -152,7 +152,7 @@ export default function DeviceDetailPage() {
                 isOnline 
                   ? 'bg-emerald-50 text-emerald-700 border-emerald-250' 
                   : 'bg-rose-50 text-rose-600 border-rose-200'
-              }`}>{metadata.status}</span>
+              }`}>{isOnline ? 'ONLINE' : 'OFFLINE'}</span>
             </div>
             <p className="text-slate-400 text-xs mt-1.5 font-medium">IMEI: {metadata.imei} | Owner: {metadata.owner || 'N/A'}</p>
           </div>

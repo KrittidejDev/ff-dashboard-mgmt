@@ -156,7 +156,7 @@ func fetchLastEmailedAnomalyID(ctx context.Context, repo domain.FahfonRepository
 }
 
 func sendEmail(cfg *config.Config, to []string, subject, body string) error {
-	smtpAddr := fmt.Sprintf("%s:%d", cfg.SMTPHost, cfg.SMTPPort)
+	smtpAddr := net.JoinHostPort(cfg.SMTPHost, strconv.Itoa(cfg.SMTPPort))
 
 	// Clean headers
 	headers := make(map[string]string)

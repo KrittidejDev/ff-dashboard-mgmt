@@ -60,13 +60,6 @@ func main() {
 	}
 	defer pool.Close()
 
-	// 4a. Connect directly to TimescaleDB of ff-river
-	riverPool, err := pgxpool.New(ctx, cfg.RiverDBURL)
-	if err != nil {
-		l.Fatal("unable to connect to river TimescaleDB database", zap.Error(err))
-	}
-	defer riverPool.Close()
-
 	// 5. Run Auto-Migrations
 	if err := database.RunMigrations(ctx, pool, l); err != nil {
 		l.Fatal("database migrations failed", zap.Error(err))
@@ -130,9 +123,9 @@ func main() {
 	fahfonHandler := http.NewFahfonHandler(fahfonUC)
 	mongoHandler := http.NewMongoHandler(mongoUC)
 	wsHandler := http.NewWebSocketHandler(rdb, l)
-	riverRepo := database.NewRiverRepository(riverPool)
+	riverClient := external.NewRiverServiceClient(cfg.RiverServiceURL)
 	streamClient := external.NewStreamClient(cfg)
-	riverHandler := http.NewRiverHandler(riverRepo, riverRdb, streamClient, l, cfg.RiverServiceURL)
+	riverHandler := http.NewRiverHandler(riverClient, riverRdb, streamClient, l)
 
 	// 7. Fiber App Setup
 	app := fiber.New(fiber.Config{
@@ -269,9 +262,12 @@ func main() {
 	riverGroup.Get("/freq-control/escalations", riverHandler.GetActiveEscalations)
 	riverGroup.Post("/devices/:serial/freq-control/restore", riverHandler.RestoreFreqControl)
 
-	// Device Health
+	// Device Health & Outage Lifecycle Logs
 	riverGroup.Get("/devices/:serial/health", riverHandler.GetDeviceHealth)
 	riverGroup.Get("/health/offlines", riverHandler.GetOfflineDevices)
+	riverGroup.Get("/uptime-logs", riverHandler.GetUptimeLogs)
+	riverGroup.Get("/uptime-logs/summary", riverHandler.GetUptimeSummary)
+	riverGroup.Get("/devices/:serial/uptime-logs", riverHandler.GetUptimeLogs)
 
 	// Data Quality
 	riverGroup.Get("/devices/:serial/dq-reports", riverHandler.GetDQReports)

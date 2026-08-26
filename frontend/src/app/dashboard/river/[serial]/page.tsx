@@ -426,7 +426,7 @@ export default function DeviceDetailPage({ params }: PageProps) {
     } finally {
       setLoadingLogs(false);
     }
-  }, [serial, selectedLogDate, apiFetch]);
+  }, [serial, selectedLogDate, apiFetch, setLoadingLogs, setLogStats]);
 
   useEffect(() => { fetchLogStatsData(); }, [selectedLogDate, fetchLogStatsData]);
   useEffect(() => { fetchStatsData(); }, [selectedDate, resolution, fetchStatsData]);

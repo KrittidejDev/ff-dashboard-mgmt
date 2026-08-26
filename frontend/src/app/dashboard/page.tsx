@@ -646,7 +646,16 @@ export default function SenseDashboard() {
                   ) : (
                     currentDevices.map((d, idx) => (
                       <tr key={`${d.mongo_id || d.uuid || d.station || ''}-${idx}`} className="hover:bg-indigo-50/20 transition-colors">
-                        <td className="py-3.5 px-4 font-extrabold text-slate-900">{d.station}</td>
+                        <td className="py-3.5 px-4 font-extrabold text-slate-900">
+                          <div className="flex flex-col">
+                            <span>{d.station}</span>
+                            {d.serial && d.serial !== d.station && (
+                              <span className="font-mono text-[11px] font-semibold text-indigo-600">
+                                {d.serial}
+                              </span>
+                            )}
+                          </div>
+                        </td>
                         <td className="py-3.5 px-4 font-mono text-slate-600 font-medium">{d.imei}</td>
                         <td className="py-3.5 px-4 text-slate-600 font-medium">{d.site || 'N/A'}</td>
                         <td className="py-3.5 px-4 font-bold text-indigo-600 font-mono">

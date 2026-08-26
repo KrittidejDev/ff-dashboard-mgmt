@@ -1,7 +1,6 @@
 package domain
 
 import (
-	"context"
 	"time"
 )
 
@@ -244,7 +243,7 @@ type WarningHistory struct {
 
 // Setting represents river_setting in database
 type Setting struct {
-	ID          int                    `json:"id"`
+	ID          int64                  `json:"id"`
 	Key         string                 `json:"key" validate:"required,max=100"`
 	Value       map[string]interface{} `json:"value" validate:"required"`
 	Description string                 `json:"description" validate:"max=500"`
@@ -252,73 +251,34 @@ type Setting struct {
 	UpdatedAt   time.Time              `json:"updated_at"`
 }
 
-// RiverRepository definitions
-type RiverRepository interface {
-	// Official Pages
-	GetOfficialPages(ctx context.Context) ([]*RiverOfficialPage, error)
-	CreateOfficialPage(ctx context.Context, page *RiverOfficialPage) error
-	UpdateOfficialPage(ctx context.Context, page *RiverOfficialPage) error
-	DeleteOfficialPage(ctx context.Context, id int) error
-	// Municipality Linking — binds a Mueangsmart Municipality UUID to an Official Page
-	LinkMunicipality(ctx context.Context, officialPageID int, municipalityID *string) (*RiverOfficialPage, error)
-	GetOfficialPageByMunicipalityID(ctx context.Context, municipalityID string) (*RiverOfficialPage, error)
+type RiverSetting = Setting
 
-	// Devices
-	GetDevices(ctx context.Context, pageID *int, status *string) ([]*RiverDevice, error)
-	GetDevicesByOwner(ctx context.Context, email string) ([]*RiverDevice, error)
-	GetDeviceBySerial(ctx context.Context, serial string) (*RiverDevice, error)
-	CreateDevice(ctx context.Context, dev *RiverDevice) error
-	UpdateDevice(ctx context.Context, dev *RiverDevice) error
-	DeleteDevice(ctx context.Context, serial string) error
-	GetUnregisteredSerials(ctx context.Context) ([]string, error)
-	GetUnregisteredDevices(ctx context.Context) ([]*RiverDevice, error)
 
-	// Config
-	GetDeviceCalcConfig(ctx context.Context, serial string) (*DeviceCalcConfig, error)
-	SaveDeviceCalcConfig(ctx context.Context, cfg *DeviceCalcConfig) error
-	CalibrateDeviceBaseline(ctx context.Context, serial string, targetDistanceCM *float64) (*DeviceCalcConfig, error)
-	UpdateWaterLevel(ctx context.Context, serial string, netCM, pct float64) error
 
-	// Alert Thresholds
-	GetAlertThresholds(ctx context.Context, serial string) ([]*AlertThreshold, error)
-	CreateAlertThreshold(ctx context.Context, t *AlertThreshold) error
-	UpdateAlertThreshold(ctx context.Context, t *AlertThreshold) error
-	DeleteAlertThreshold(ctx context.Context, id int) (string, error)
+// RiverDeviceUptimeLog represents river_device_uptime_log in database
+type RiverDeviceUptimeLog struct {
+	ID                int64      `json:"id"`
+	Serial            string     `json:"serial"`
+	StationName       string     `json:"station_name,omitempty"`
+	OrganizationName  string     `json:"organization_name,omitempty"`
+	Status            string     `json:"status"` // 'ONGOING', 'RESOLVED'
+	OfflineAt         time.Time  `json:"offline_at"`
+	OnlineAt          *time.Time `json:"online_at,omitempty"`
+	DurationSec       *int64     `json:"duration_sec,omitempty"`
+	DurationFormatted string     `json:"duration_formatted,omitempty"`
+	LastSeenAt        *time.Time `json:"last_seen_at,omitempty"`
+	Reason            string     `json:"reason"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
+}
 
-	// Alert History
-	GetAlertHistory(ctx context.Context, serial string, limit int) ([]*AlertHistory, error)
-
-	// Alert Subscriptions
-	GetSubscriptions(ctx context.Context, projectCode string) ([]*AlertSubscription, error)
-	CreateSubscription(ctx context.Context, sub *AlertSubscription) error
-	UpdateSubscription(ctx context.Context, sub *AlertSubscription) error
-	DeleteSubscription(ctx context.Context, id int) error
-
-	// Freq Control
-	GetFreqControl(ctx context.Context, serial string) (*FreqControl, error)
-	GetActiveEscalations(ctx context.Context) ([]*FreqControl, error)
-	RestoreFreqControl(ctx context.Context, serial string) error
-
-	// Device Health
-	GetDeviceHealth(ctx context.Context, serial string) ([]*DeviceHealth, error)
-	GetOfflineDevices(ctx context.Context) ([]*DeviceHealth, error)
-
-	// Data Quality
-	GetDQReports(ctx context.Context, serial string, limit int) ([]*DQReport, error)
-	GetDQSummary(ctx context.Context) (map[string]interface{}, error)
-
-	// Settings
-	GetSettingByKey(ctx context.Context, key string) (*Setting, error)
-	SaveSetting(ctx context.Context, setting *Setting) error
-
-	// Read Raw/Timeseries Data
-	GetLatestCurrentGroup(ctx context.Context, serial string) (*CurrentGroup, error)
-	GetHistoricalStats(ctx context.Context, serial string, start, end time.Time) ([]*CurrentStat, error)
-	GetWarningHistory(ctx context.Context, serial string, limit int) ([]*WarningHistory, error)
-
-	// Noise Audit Log
-	GetNoiseAuditLogs(ctx context.Context, serial string, eventType string, limit, offset int) ([]*NoiseAuditLog, int, error)
-
-	// Health Check
-	Ping(ctx context.Context) error
+// RiverUptimeSummary represents daily aggregated uptime & downtime statistics
+type RiverUptimeSummary struct {
+	Date               string `json:"date"`
+	TotalOutages       int    `json:"total_outages"`
+	OngoingOutages     int    `json:"ongoing_outages"`
+	ResolvedOutages    int    `json:"resolved_outages"`
+	TotalDowntimeSec   int64  `json:"total_downtime_sec"`
+	AverageDowntimeSec int64  `json:"average_downtime_sec"`
+	FormattedTotalDown string `json:"formatted_total_downtime"`
 }

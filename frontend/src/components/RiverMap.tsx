@@ -92,11 +92,12 @@ const createClusterIcon = (cluster: any) => {
 
   // Status classification helper
   const getDeviceStatus = React.useCallback((d: any) => {
-    if (d.warning_status === 'UNREGISTERED') {
+    if (d.status === 'UNREGISTERED' || d.warning_status === 'UNREGISTERED') {
       return 'UNREGISTERED';
     }
-    // Offline threshold: no last seen data or last seen is older than 15 mins
-    const isOffline = !d.last_seen || (new Date().getTime() - new Date(d.last_seen).getTime()) > 15 * 60 * 1000;
+    // Offline threshold: respects device/global offline_threshold_min (fallback 360 mins)
+    const thresholdMinutes = d.offline_threshold_min || 360;
+    const isOffline = !d.last_seen || (new Date().getTime() - new Date(d.last_seen).getTime()) > thresholdMinutes * 60 * 1000;
     if (isOffline) {
       return 'OFFLINE';
     }

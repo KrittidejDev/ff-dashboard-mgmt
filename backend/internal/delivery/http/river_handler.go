@@ -27,29 +27,27 @@ import (
 )
 
 type RiverHandler struct {
-	repo             domain.RiverRepository
-	rdb              *redis.Client
-	validate         *validator.Validate
-	logger           *zap.Logger
-	streamClient     *external.StreamClient
-	riverServiceURL  string // base URL of ff-river-service (e.g. http://10.1.2.19:8081)
+	client       *external.RiverServiceClient
+	rdb          *redis.Client
+	validate     *validator.Validate
+	logger       *zap.Logger
+	streamClient *external.StreamClient
 }
 
-func NewRiverHandler(repo domain.RiverRepository, rdb *redis.Client, sc *external.StreamClient, logger *zap.Logger, riverServiceURL string) *RiverHandler {
+func NewRiverHandler(client *external.RiverServiceClient, rdb *redis.Client, sc *external.StreamClient, logger *zap.Logger) *RiverHandler {
 	return &RiverHandler{
-		repo:            repo,
-		rdb:             rdb,
-		validate:        validator.New(),
-		logger:          logger,
-		streamClient:    sc,
-		riverServiceURL: riverServiceURL,
+		client:       client,
+		rdb:          rdb,
+		validate:     validator.New(),
+		logger:       logger,
+		streamClient: sc,
 	}
 }
 
 // ── RiverOfficial Pages Handlers ───────────────────────────────────────────────
 
 func (h *RiverHandler) GetOfficialPages(c fiber.Ctx) error {
-	pages, err := h.repo.GetOfficialPages(c.Context())
+	pages, err := h.client.GetOfficialPages(c.Context())
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -66,7 +64,7 @@ func (h *RiverHandler) CreateOfficialPage(c fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	if err := h.repo.CreateOfficialPage(c.Context(), page); err != nil {
+	if err := h.client.CreateOfficialPage(c.Context(), page); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return c.Status(fiber.StatusCreated).JSON(page)
@@ -89,7 +87,7 @@ func (h *RiverHandler) UpdateOfficialPage(c fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	if err := h.repo.UpdateOfficialPage(c.Context(), page); err != nil {
+	if err := h.client.UpdateOfficialPage(c.Context(), page); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return c.JSON(page)
@@ -102,7 +100,7 @@ func (h *RiverHandler) DeleteOfficialPage(c fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid ID format"})
 	}
 
-	if err := h.repo.DeleteOfficialPage(c.Context(), id); err != nil {
+	if err := h.client.DeleteOfficialPage(c.Context(), id); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return c.JSON(fiber.Map{"message": "Official page deleted successfully"})
@@ -125,7 +123,7 @@ func (h *RiverHandler) LinkMunicipality(c fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request body"})
 	}
 
-	page, err := h.repo.LinkMunicipality(c.Context(), id, body.MunicipalityID)
+	page, err := h.client.LinkMunicipality(c.Context(), id, body.MunicipalityID)
 	if err != nil {
 		if err.Error() == "official page not found" {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": err.Error()})
@@ -152,7 +150,7 @@ func (h *RiverHandler) GetOfficialPageByMunicipalityID(c fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "municipalityId is required"})
 	}
 
-	page, err := h.repo.GetOfficialPageByMunicipalityID(c.Context(), municipalityID)
+	page, err := h.client.GetOfficialPageByMunicipalityID(c.Context(), municipalityID)
 	if err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -188,7 +186,7 @@ func (h *RiverHandler) GetDevices(c fiber.Ctx) error {
 		status = &statusStr
 	}
 
-	devices, err := h.repo.GetDevices(c.Context(), pageID, status)
+	devices, err := h.client.GetDevices(c.Context(), pageID, status)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -231,7 +229,7 @@ func (h *RiverHandler) GetDeviceBySerial(c fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "serial is required"})
 	}
 
-	dev, err := h.repo.GetDeviceBySerial(c.Context(), serial)
+	dev, err := h.client.GetDeviceBySerial(c.Context(), serial)
 	if err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -297,7 +295,7 @@ func (h *RiverHandler) CreateDevice(c fiber.Ctx) error {
 		CCTVPath2:        req.CCTVPath2,
 	}
 
-	if err := h.repo.CreateDevice(c.Context(), dev); err != nil {
+	if err := h.client.CreateDevice(c.Context(), dev); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return c.Status(fiber.StatusCreated).JSON(dev)
@@ -335,7 +333,7 @@ func (h *RiverHandler) UpdateDevice(c fiber.Ctx) error {
 		CCTVPath2:        req.CCTVPath2,
 	}
 
-	if err := h.repo.UpdateDevice(c.Context(), dev); err != nil {
+	if err := h.client.UpdateDevice(c.Context(), dev); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return c.JSON(dev)
@@ -347,14 +345,14 @@ func (h *RiverHandler) DeleteDevice(c fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "serial is required"})
 	}
 
-	if err := h.repo.DeleteDevice(c.Context(), serial); err != nil {
+	if err := h.client.DeleteDevice(c.Context(), serial); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return c.JSON(fiber.Map{"message": "Device deleted successfully"})
 }
 
 func (h *RiverHandler) GetUnregisteredSerials(c fiber.Ctx) error {
-	serials, err := h.repo.GetUnregisteredSerials(c.Context())
+	serials, err := h.client.GetUnregisteredSerials(c.Context())
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -362,7 +360,7 @@ func (h *RiverHandler) GetUnregisteredSerials(c fiber.Ctx) error {
 }
 
 func (h *RiverHandler) GetUnregisteredDevices(c fiber.Ctx) error {
-	devices, err := h.repo.GetUnregisteredDevices(c.Context())
+	devices, err := h.client.GetUnregisteredDevices(c.Context())
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -377,7 +375,7 @@ func (h *RiverHandler) GetDeviceCalcConfig(c fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "serial is required"})
 	}
 
-	url := fmt.Sprintf("%s/api/v1/devices/%s/calc-config", h.riverServiceURL, serial)
+	url := fmt.Sprintf("%s/api/v1/devices/%s/calc-config", h.client.BaseURL(), serial)
 	req, err := http.NewRequestWithContext(c.Context(), http.MethodGet, url, nil)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to build request to river service"})
@@ -408,7 +406,7 @@ func (h *RiverHandler) SaveDeviceCalcConfig(c fiber.Ctx) error {
 	}
 
 	bodyBytes := c.Body()
-	url := fmt.Sprintf("%s/api/v1/devices/%s/calc-config", h.riverServiceURL, serial)
+	url := fmt.Sprintf("%s/api/v1/devices/%s/calc-config", h.client.BaseURL(), serial)
 	req, err := http.NewRequestWithContext(c.Context(), http.MethodPost, url, bytes.NewReader(bodyBytes))
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to build request to river service"})
@@ -439,7 +437,7 @@ func (h *RiverHandler) SaveDeviceCalcConfig(c fiber.Ctx) error {
 	}
 
 	// 2. Perform immediate recalculation on the latest telemetry point
-	latest, err := h.repo.GetLatestCurrentGroup(c.Context(), serial)
+	latest, err := h.client.GetLatestCurrentGroup(c.Context(), serial)
 	if err == nil {
 		var cfg domain.DeviceCalcConfig
 		if err := json.Unmarshal(bodyBytes, &cfg); err == nil {
@@ -458,7 +456,7 @@ func (h *RiverHandler) SaveDeviceCalcConfig(c fiber.Ctx) error {
 				pct = math.Round(pct*100) / 100
 
 				// Update the database
-				_ = h.repo.UpdateWaterLevel(c.Context(), serial, netCM, pct)
+				_ = h.client.UpdateWaterLevel(c.Context(), serial, netCM, pct)
 
 				// Trigger immediate alert evaluation in workers
 				if h.rdb != nil {
@@ -493,7 +491,7 @@ func (h *RiverHandler) CalibrateDevice(c fiber.Ctx) error {
 	var req CalibrateReq
 	_ = c.Bind().JSON(&req)
 
-	cfg, err := h.repo.CalibrateDeviceBaseline(c.Context(), serial, req.TargetDistanceCM)
+	cfg, err := h.client.CalibrateDeviceBaseline(c.Context(), serial, req.TargetDistanceCM)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -528,7 +526,7 @@ func (h *RiverHandler) triggerAlertEvaluation(ctx context.Context, serial string
 	if h.rdb == nil {
 		return
 	}
-	latest, err := h.repo.GetLatestCurrentGroup(ctx, serial)
+	latest, err := h.client.GetLatestCurrentGroup(ctx, serial)
 	if err == nil {
 		alertEv := map[string]interface{}{
 			"serial":             serial,
@@ -548,7 +546,7 @@ func (h *RiverHandler) GetAlertThresholds(c fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "serial is required"})
 	}
 
-	thresholds, err := h.repo.GetAlertThresholds(c.Context(), serial)
+	thresholds, err := h.client.GetAlertThresholds(c.Context(), serial)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -571,7 +569,7 @@ func (h *RiverHandler) CreateAlertThreshold(c fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	if err := h.repo.CreateAlertThreshold(c.Context(), t); err != nil {
+	if err := h.client.CreateAlertThreshold(c.Context(), t); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
@@ -599,7 +597,7 @@ func (h *RiverHandler) UpdateAlertThreshold(c fiber.Ctx) error {
 	}
 	t.ID = id
 
-	if err := h.repo.UpdateAlertThreshold(c.Context(), t); err != nil {
+	if err := h.client.UpdateAlertThreshold(c.Context(), t); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
@@ -623,7 +621,7 @@ func (h *RiverHandler) DeleteAlertThreshold(c fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid ID format"})
 	}
 
-	serial, err := h.repo.DeleteAlertThreshold(c.Context(), id)
+	serial, err := h.client.DeleteAlertThreshold(c.Context(), id)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -656,7 +654,7 @@ func (h *RiverHandler) GetAlertHistory(c fiber.Ctx) error {
 		}
 	}
 
-	history, err := h.repo.GetAlertHistory(c.Context(), serial, limit)
+	history, err := h.client.GetAlertHistory(c.Context(), serial, limit)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -667,7 +665,7 @@ func (h *RiverHandler) GetAlertHistory(c fiber.Ctx) error {
 
 func (h *RiverHandler) GetSubscriptions(c fiber.Ctx) error {
 	projectCode := c.Query("project_code")
-	subs, err := h.repo.GetSubscriptions(c.Context(), projectCode)
+	subs, err := h.client.GetSubscriptions(c.Context(), projectCode)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -684,7 +682,7 @@ func (h *RiverHandler) CreateSubscription(c fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	if err := h.repo.CreateSubscription(c.Context(), sub); err != nil {
+	if err := h.client.CreateSubscription(c.Context(), sub); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return c.Status(fiber.StatusCreated).JSON(sub)
@@ -703,7 +701,7 @@ func (h *RiverHandler) UpdateSubscription(c fiber.Ctx) error {
 	}
 	sub.ID = id
 
-	if err := h.repo.UpdateSubscription(c.Context(), sub); err != nil {
+	if err := h.client.UpdateSubscription(c.Context(), sub); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return c.JSON(sub)
@@ -716,7 +714,7 @@ func (h *RiverHandler) DeleteSubscription(c fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid ID format"})
 	}
 
-	if err := h.repo.DeleteSubscription(c.Context(), id); err != nil {
+	if err := h.client.DeleteSubscription(c.Context(), id); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return c.JSON(fiber.Map{"message": "Subscription deleted successfully"})
@@ -730,7 +728,7 @@ func (h *RiverHandler) GetFreqControl(c fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "serial is required"})
 	}
 
-	fc, err := h.repo.GetFreqControl(c.Context(), serial)
+	fc, err := h.client.GetFreqControl(c.Context(), serial)
 	if err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -738,7 +736,7 @@ func (h *RiverHandler) GetFreqControl(c fiber.Ctx) error {
 }
 
 func (h *RiverHandler) GetActiveEscalations(c fiber.Ctx) error {
-	escalations, err := h.repo.GetActiveEscalations(c.Context())
+	escalations, err := h.client.GetActiveEscalations(c.Context())
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -751,7 +749,7 @@ func (h *RiverHandler) RestoreFreqControl(c fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "serial is required"})
 	}
 
-	if err := h.repo.RestoreFreqControl(c.Context(), serial); err != nil {
+	if err := h.client.RestoreFreqControl(c.Context(), serial); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return c.JSON(fiber.Map{"message": "Frequency transmission control successfully restored"})
@@ -765,7 +763,7 @@ func (h *RiverHandler) GetDeviceHealth(c fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "serial is required"})
 	}
 
-	health, err := h.repo.GetDeviceHealth(c.Context(), serial)
+	health, err := h.client.GetDeviceHealth(c.Context(), serial)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -773,11 +771,47 @@ func (h *RiverHandler) GetDeviceHealth(c fiber.Ctx) error {
 }
 
 func (h *RiverHandler) GetOfflineDevices(c fiber.Ctx) error {
-	offlines, err := h.repo.GetOfflineDevices(c.Context())
+	offlines, err := h.client.GetOfflineDevices(c.Context())
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return c.JSON(offlines)
+}
+
+func (h *RiverHandler) GetUptimeLogs(c fiber.Ctx) error {
+	serial := c.Query("serial")
+	status := c.Query("status")
+	fromDate := c.Query("from_date")
+	toDate := c.Query("to_date")
+
+	page, _ := strconv.Atoi(c.Query("page", "1"))
+	if page < 1 {
+		page = 1
+	}
+	pageSize, _ := strconv.Atoi(c.Query("page_size", "50"))
+	if pageSize < 1 {
+		pageSize = 50
+	}
+	logs, total, err := h.client.GetUptimeLogs(c.Context(), serial, fromDate, toDate, status, page, pageSize)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return c.JSON(fiber.Map{
+		"data":       logs,
+		"total":      total,
+		"page":       page,
+		"page_size":  pageSize,
+		"total_page": (total + pageSize - 1) / pageSize,
+	})
+}
+
+func (h *RiverHandler) GetUptimeSummary(c fiber.Ctx) error {
+	summary, err := h.client.GetUptimeSummary(c.Context())
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	return c.JSON(summary)
 }
 
 // ── Data Quality Handlers ────────────────────────────────────────────────────
@@ -795,7 +829,7 @@ func (h *RiverHandler) GetDQReports(c fiber.Ctx) error {
 		}
 	}
 
-	reports, err := h.repo.GetDQReports(c.Context(), serial, limit)
+	reports, err := h.client.GetDQReports(c.Context(), serial, limit)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -803,7 +837,7 @@ func (h *RiverHandler) GetDQReports(c fiber.Ctx) error {
 }
 
 func (h *RiverHandler) GetDQSummary(c fiber.Ctx) error {
-	summary, err := h.repo.GetDQSummary(c.Context())
+	summary, err := h.client.GetDQSummary(c.Context())
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -818,7 +852,7 @@ func (h *RiverHandler) GetLatestCurrentGroup(c fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "serial is required"})
 	}
 
-	data, err := h.repo.GetLatestCurrentGroup(c.Context(), serial)
+	data, err := h.client.GetLatestCurrentGroup(c.Context(), serial)
 	if err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -845,7 +879,7 @@ func (h *RiverHandler) GetHistoricalStats(c fiber.Ctx) error {
 		}
 	}
 
-	stats, err := h.repo.GetHistoricalStats(c.Context(), serial, start, end)
+	stats, err := h.client.GetHistoricalStats(c.Context(), serial, start, end)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -865,7 +899,7 @@ func (h *RiverHandler) GetWarningHistory(c fiber.Ctx) error {
 		}
 	}
 
-	history, err := h.repo.GetWarningHistory(c.Context(), serial, limit)
+	history, err := h.client.GetWarningHistory(c.Context(), serial, limit)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -880,7 +914,7 @@ func (h *RiverHandler) GetSetting(c fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "key is required"})
 	}
 
-	setting, err := h.repo.GetSettingByKey(c.Context(), key)
+	setting, err := h.client.GetSettingByKey(c.Context(), key)
 	if err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -897,9 +931,15 @@ func (h *RiverHandler) SaveSetting(c fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	if err := h.repo.SaveSetting(c.Context(), setting); err != nil {
+	if err := h.client.SaveSetting(c.Context(), setting); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
+
+	// Trigger instant background reconcile with new settings
+	go func() {
+		_ = h.client.ReconcileDeviceUptimeLogs(context.Background())
+	}()
+
 	return c.JSON(setting)
 }
 
@@ -974,7 +1014,7 @@ func (h *RiverHandler) InitializeStream(c fiber.Ctx) error {
 	}
 
 	// 1. Get latest telemetry data to fetch snapshot_url1 (RTSP path)
-	latest, err := h.repo.GetLatestCurrentGroup(c.Context(), serial)
+	latest, err := h.client.GetLatestCurrentGroup(c.Context(), serial)
 	if err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "device telemetry group not found"})
 	}
@@ -982,7 +1022,7 @@ func (h *RiverHandler) InitializeStream(c fiber.Ctx) error {
 	rtspURL := latest.SnapshotURL1
 	if rtspURL == "" || rtspURL == "-" {
 		// Fallback to static cctv_path_1 if snapshotURL1 is empty
-		dev, err := h.repo.GetDeviceBySerial(c.Context(), serial)
+		dev, err := h.client.GetDeviceBySerial(c.Context(), serial)
 		if err == nil && dev.CCTVPath1 != "" && dev.CCTVPath1 != "-" {
 			rtspURL = dev.CCTVPath1
 		} else {
@@ -1058,7 +1098,7 @@ func (h *RiverHandler) ControlPTZ(c fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "request body is required"})
 	}
 
-	targetURL := fmt.Sprintf("%s/api/v1/devices/%s/ptz", h.riverServiceURL, serial)
+	targetURL := fmt.Sprintf("%s/api/v1/devices/%s/ptz", h.client.BaseURL(), serial)
 
 	req, err := http.NewRequestWithContext(c.Context(), http.MethodPost, targetURL, bytes.NewReader(body))
 	if err != nil {
@@ -1133,7 +1173,7 @@ func (h *RiverHandler) ExportDevicesCSV(c fiber.Ctx) error {
 	}
 
 	// Fetch all registered devices
-	devices, err := h.repo.GetDevices(c.Context(), nil, nil)
+	devices, err := h.client.GetDevices(c.Context(), nil, nil)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -1355,7 +1395,7 @@ func (h *RiverHandler) GetNoiseAuditLogs(c fiber.Ctx) error {
 	limit, _ := strconv.Atoi(c.Query("limit", "50"))
 	offset, _ := strconv.Atoi(c.Query("offset", "0"))
 
-	logs, total, err := h.repo.GetNoiseAuditLogs(c.Context(), serial, eventType, limit, offset)
+	logs, total, err := h.client.GetNoiseAuditLogs(c.Context(), serial, eventType, limit, offset)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}

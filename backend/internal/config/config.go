@@ -33,7 +33,6 @@ type Config struct {
 
 	// River Service
 	RiverServiceURL    string
-	RiverDBURL         string
 	RiverRedisHost     string
 	RiverRedisPort     string
 	RiverRedisPassword string
@@ -66,8 +65,7 @@ func LoadConfig() *Config {
 		RedisPort:       getEnv("REDIS_PORT", "6379"),
 		RedisUser:       getEnv("REDIS_USER", "ff-system-rd"),
 		RedisPassword:   getEnv("REDIS_PASSWORD", ""),
-		RiverServiceURL:    getEnv("RIVER_SERVICE_URL", "http://localhost:8082"),
-		RiverDBURL:         getEnv("RIVER_DB_URL", ""),
+		RiverServiceURL:    getEnv("RIVER_SERVICE_URL", "http://10.1.2.19:8081"),
 		RiverRedisHost:     getEnv("RIVER_REDIS_HOST", "10.1.2.19"),
 		RiverRedisPort:     getEnv("RIVER_REDIS_PORT", "6382"),
 		RiverRedisPassword: getEnv("RIVER_REDIS_PASSWORD", ""),
@@ -86,9 +84,6 @@ func (c *Config) Validate() error {
 	}
 	if c.RedisPassword == "" {
 		return errors.New("config: REDIS_PASSWORD is required")
-	}
-	if c.RiverDBURL == "" {
-		return errors.New("config: RIVER_DB_URL is required")
 	}
 	if c.DBQueryTimeout < time.Second {
 		return errors.New("config: DB_QUERY_TIMEOUT must be >= 1s")

@@ -99,6 +99,7 @@ type FahfonDeviceMaster struct {
 	UUID         string         `json:"uuid"`
 	MongoID      string         `json:"mongo_id"`
 	Station      string         `json:"station"`
+	Serial       string         `json:"serial,omitempty"`
 	Imei         string         `json:"imei"`
 	Owner        string         `json:"owner"`
 	Email        string         `json:"email"`
