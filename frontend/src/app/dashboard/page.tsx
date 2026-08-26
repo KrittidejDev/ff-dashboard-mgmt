@@ -3,8 +3,9 @@
 import React, { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { useAuth } from '@/context/AuthContext';
-import { Cpu, Search, AlertCircle, RefreshCw, Layers, ArrowRight, ArrowUpDown, AlertTriangle, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
+import { Cpu, Search, AlertCircle, RefreshCw, Layers, ArrowRight, ArrowUpDown, AlertTriangle, ChevronLeft, ChevronRight, Trash2, Users } from 'lucide-react';
 import Link from 'next/link';
+import { SearchableSelect, SearchableOption } from '@/components/UI';
 
 // Dynamically load Map component to bypass Node SSR environment crashes
 const FahfonMap = dynamic(() => import('@/components/FahfonMap'), {
@@ -150,11 +151,36 @@ export default function SenseDashboard() {
         setAnomalies(aData || []);
       }
 
-      const pagesRes = await apiFetch(`${API_BASE_URL}/fahfon-sense/official-pages`, { signal });
-      if (pagesRes.ok) {
-        const pData = await pagesRes.json();
-        setOfficialPages(pData || []);
+      let loadedPages: any[] = [];
+      try {
+        const pagesRes = await apiFetch(`${API_BASE_URL}/fahfon-sense/official-pages`, { signal });
+        if (pagesRes.ok) {
+          loadedPages = await pagesRes.json();
+        }
+      } catch (e) {
+        // Handled by fallback
       }
+
+      // If backend returned empty pages or error, derive immediately from devices array grouped by email
+      if (!loadedPages || loadedPages.length === 0) {
+        const counts = new Map<string, { email: string; account_id: string; device_count: number }>();
+        (data || []).forEach((d: any) => {
+          if (d.email) {
+            const key = d.email;
+            const existing = counts.get(key);
+            if (existing) {
+              existing.device_count++;
+              if (!existing.account_id && d.account_id) {
+                existing.account_id = d.account_id;
+              }
+            } else {
+              counts.set(key, { email: d.email, account_id: d.account_id || '', device_count: 1 });
+            }
+          }
+        });
+        loadedPages = Array.from(counts.values());
+      }
+      setOfficialPages(loadedPages || []);
 
       if (user && (user.role === 'SuperAdmin' || user.role === 'Admin')) {
         const conflictsRes = await apiFetch(`${API_BASE_URL}/fahfon-sense/conflicts`, { signal });
@@ -280,11 +306,21 @@ export default function SenseDashboard() {
     };
   }, []);
 
-  // Client-side reactive filtering by Selected Official Page email
+  // Official Page Dropdown Options
+  const officialPageOptions: SearchableOption[] = React.useMemo(() => {
+    return (officialPages || []).map((p) => ({
+      value: p.email || p.account_id || '',
+      label: p.email || p.account_id || 'Unknown Official Page',
+      count: p.device_count || 0,
+      subLabel: p.account_id && p.account_id !== p.email ? `Account ID: ${p.account_id}` : undefined,
+    }));
+  }, [officialPages]);
+
+  // Client-side reactive filtering by Selected Official Page email / account_id
   const filteredDevices = React.useMemo(() => {
     if (!devices) return [];
-    if (selectedOfficialPage === 'all') return devices;
-    return devices.filter((d) => d && d.email === selectedOfficialPage);
+    if (selectedOfficialPage === 'all' || !selectedOfficialPage) return devices;
+    return devices.filter((d) => d && (d.email === selectedOfficialPage || d.account_id === selectedOfficialPage));
   }, [devices, selectedOfficialPage]);
 
   // Quick statistics calculation
@@ -314,6 +350,14 @@ export default function SenseDashboard() {
     return list;
   }, [filteredDevices, activeTab, sort]);
 
+  // Anomalies filtered by selected page
+  const filteredAnomalies = React.useMemo(() => {
+    if (!anomalies) return [];
+    if (selectedOfficialPage === 'all' || !selectedOfficialPage) return anomalies;
+    const pageDeviceStations = new Set(filteredDevices.map((d) => d.station));
+    return anomalies.filter((a) => pageDeviceStations.has(a.device_id));
+  }, [anomalies, filteredDevices, selectedOfficialPage]);
+
   // Pagination calculation
   const indexOfLastDevice = devicePage * itemsPerDevicePage;
   const indexOfFirstDevice = indexOfLastDevice - itemsPerDevicePage;
@@ -322,8 +366,8 @@ export default function SenseDashboard() {
 
   const indexOfLastAnomaly = anomalyPage * itemsPerAnomalyPage;
   const indexOfFirstAnomaly = indexOfLastAnomaly - itemsPerAnomalyPage;
-  const currentAnomalies = anomalies.slice(indexOfFirstAnomaly, indexOfLastAnomaly);
-  const totalAnomalyPages = Math.ceil(anomalies.length / itemsPerAnomalyPage);
+  const currentAnomalies = filteredAnomalies.slice(indexOfFirstAnomaly, indexOfLastAnomaly);
+  const totalAnomalyPages = Math.ceil(filteredAnomalies.length / itemsPerAnomalyPage);
 
   const filteredConflicts = conflicts.filter(
     (c) =>
@@ -337,14 +381,14 @@ export default function SenseDashboard() {
       {/* Title Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center space-y-4 md:space-y-0">
         <div>
-          <h1 className="text-3xl font-extrabold tracking-tight text-white">Sense Monitor</h1>
-          <p className="text-gray-400 text-sm mt-1">Real-time status overview and coordinate mapping.</p>
+          <h1 className="text-3xl font-extrabold tracking-tight text-slate-900">Sense Monitor</h1>
+          <p className="text-slate-500 text-sm mt-1 font-medium">Real-time status overview and coordinate mapping.</p>
         </div>
         <div className="flex items-center space-x-3">
           {lastRefreshed && (
-            <span className="text-[11px] text-gray-500 font-mono">
+            <span className="text-[11px] text-slate-400 font-mono font-medium">
               {silentRefreshing ? (
-                <span className="text-indigo-400 animate-pulse">⟳ Syncing...</span>
+                <span className="text-indigo-600 animate-pulse font-bold">⟳ Syncing...</span>
               ) : (
                 `อัพเดทล่าสุด ${lastRefreshed.toLocaleTimeString('th-TH')}`
               )}
@@ -352,7 +396,7 @@ export default function SenseDashboard() {
           )}
           <button
             onClick={() => fetchDevices()}
-            className="flex items-center space-x-2 bg-indigo-600/10 hover:bg-indigo-600/20 text-indigo-400 border border-indigo-500/20 px-4 py-2 rounded-xl text-sm font-semibold transition"
+            className="flex items-center space-x-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-100 px-4 py-2.5 rounded-xl text-sm font-bold transition shadow-sm"
           >
             <RefreshCw className={`w-4 h-4 ${silentRefreshing ? 'animate-spin' : ''}`} />
             <span>Refresh</span>
@@ -362,45 +406,45 @@ export default function SenseDashboard() {
 
       {/* KPI Cards Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="glass-panel p-6 rounded-2xl hover-scale">
-          <div className="flex justify-between items-center text-gray-400">
-            <span className="text-xs font-semibold uppercase tracking-wider">Total Registers</span>
-            <Cpu className="w-5 h-5 text-indigo-400" />
+        <div className="glass-panel p-6 rounded-2xl hover-scale bg-white/95 border border-slate-200/80 shadow-md shadow-slate-100/50">
+          <div className="flex justify-between items-center text-slate-400">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Total Registers</span>
+            <Cpu className="w-5 h-5 text-indigo-600" />
           </div>
-          <h3 className="text-3xl font-bold text-white mt-4">{totalCount}</h3>
-          <p className="text-[10px] text-gray-500 mt-2">Active devices registered in systems.</p>
+          <h3 className="text-3xl font-extrabold text-slate-900 mt-4">{totalCount}</h3>
+          <p className="text-[10px] text-slate-400 mt-2 font-medium">Active devices registered in systems.</p>
         </div>
 
-        <div className="glass-panel p-6 rounded-2xl hover-scale">
-          <div className="flex justify-between items-center text-gray-400">
-            <span className="text-xs font-semibold uppercase tracking-wider">Online Devices</span>
+        <div className="glass-panel p-6 rounded-2xl hover-scale bg-white/95 border border-slate-200/80 shadow-md shadow-slate-100/50">
+          <div className="flex justify-between items-center text-slate-400">
+            <span className="text-xs font-bold uppercase tracking-wider text-emerald-600">Online Devices</span>
             <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></div>
           </div>
-          <h3 className="text-3xl font-bold text-emerald-400 mt-4">{onlineCount}</h3>
-          <p className="text-[10px] text-emerald-500/60 mt-2">Pinging telemetry data within 6 hours.</p>
+          <h3 className="text-3xl font-extrabold text-emerald-600 mt-4">{onlineCount}</h3>
+          <p className="text-[10px] text-emerald-600/70 mt-2 font-medium">Pinging telemetry data within 6 hours.</p>
         </div>
 
-        <div className="glass-panel p-6 rounded-2xl hover-scale">
-          <div className="flex justify-between items-center text-gray-400">
-            <span className="text-xs font-semibold uppercase tracking-wider">Silent Devices</span>
-            <AlertCircle className="w-5 h-5 text-rose-400" />
+        <div className="glass-panel p-6 rounded-2xl hover-scale bg-white/95 border border-slate-200/80 shadow-md shadow-slate-100/50">
+          <div className="flex justify-between items-center text-slate-400">
+            <span className="text-xs font-bold uppercase tracking-wider text-rose-600">Silent Devices</span>
+            <AlertCircle className="w-5 h-5 text-rose-500" />
           </div>
-          <h3 className="text-3xl font-bold text-rose-400 mt-4">{offlineCount}</h3>
-          <p className="text-[10px] text-rose-500/60 mt-2">Offline or onsite maintenance required.</p>
+          <h3 className="text-3xl font-extrabold text-rose-600 mt-4">{offlineCount}</h3>
+          <p className="text-[10px] text-rose-600/70 mt-2 font-medium">Offline or onsite maintenance required.</p>
         </div>
 
-        <div className="glass-panel p-6 rounded-2xl hover-scale">
-          <div className="flex justify-between items-center text-gray-400">
-            <span className="text-xs font-semibold uppercase tracking-wider">Malfunctions</span>
+        <div className="glass-panel p-6 rounded-2xl hover-scale bg-white/95 border border-slate-200/80 shadow-md shadow-slate-100/50">
+          <div className="flex justify-between items-center text-slate-400">
+            <span className="text-xs font-bold uppercase tracking-wider text-amber-600">Malfunctions</span>
             <AlertCircle className="w-5 h-5 text-amber-500 animate-bounce" />
           </div>
-          <h3 className="text-3xl font-bold text-amber-500 mt-4">{malfunctionCount}</h3>
-          <p className="text-[10px] text-amber-500/60 mt-2">Active device parameter thresholds breached.</p>
+          <h3 className="text-3xl font-extrabold text-amber-600 mt-4">{malfunctionCount}</h3>
+          <p className="text-[10px] text-amber-600/70 mt-2 font-medium">Active device parameter thresholds breached.</p>
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-gray-800 space-x-6">
+      <div className="flex border-b border-slate-200 space-x-6">
         <button
           onClick={() => {
             setActiveTab('monitor');
@@ -408,13 +452,13 @@ export default function SenseDashboard() {
           }}
           className={`pb-4 text-sm font-bold transition-all duration-200 relative ${
             activeTab === 'monitor' 
-              ? 'text-indigo-400 dark:text-white font-extrabold' 
-              : 'text-slate-500 dark:text-gray-400 hover:text-indigo-400 dark:hover:text-gray-200'
+              ? 'text-indigo-600 font-extrabold' 
+              : 'text-slate-500 hover:text-indigo-600'
           }`}
         >
           <span>Sense Monitor Overview</span>
           {activeTab === 'monitor' && (
-            <div className="absolute bottom-0 left-0 w-full h-0.5 bg-indigo-650 dark:bg-indigo-500 rounded-full"></div>
+            <div className="absolute bottom-0 left-0 w-full h-0.5 bg-indigo-600 rounded-full"></div>
           )}
         </button>
 
@@ -425,8 +469,8 @@ export default function SenseDashboard() {
           }}
           className={`pb-4 text-sm font-bold transition-all duration-200 relative flex items-center space-x-2 ${
             activeTab === 'silent' 
-              ? 'text-rose-400 dark:text-rose-450 font-extrabold' 
-              : 'text-slate-500 dark:text-gray-400 hover:text-rose-400 dark:hover:text-gray-200'
+              ? 'text-rose-600 font-extrabold' 
+              : 'text-slate-500 hover:text-rose-600'
           }`}
         >
           <span>Silent Devices ({offlineCount})</span>
@@ -434,7 +478,7 @@ export default function SenseDashboard() {
             <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span>
           )}
           {activeTab === 'silent' && (
-            <div className="absolute bottom-0 left-0 w-full h-0.5 bg-rose-600 dark:bg-rose-500 rounded-full"></div>
+            <div className="absolute bottom-0 left-0 w-full h-0.5 bg-rose-600 rounded-full"></div>
           )}
         </button>
 
@@ -446,16 +490,16 @@ export default function SenseDashboard() {
             }}
             className={`pb-4 text-sm font-bold transition-all duration-200 relative flex items-center space-x-2 ${
               activeTab === 'conflicts' 
-                ? 'text-amber-400 dark:text-amber-450 font-extrabold' 
-                : 'text-slate-500 dark:text-gray-400 hover:text-amber-400 dark:hover:text-gray-200'
-          }`}
+                ? 'text-amber-600 font-extrabold' 
+                : 'text-slate-500 hover:text-amber-600'
+            }`}
           >
             <span>Conflict Resolver ({conflicts.length})</span>
             {conflicts.length > 0 && (
               <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
             )}
             {activeTab === 'conflicts' && (
-              <div className="absolute bottom-0 left-0 w-full h-0.5 bg-amber-600 dark:bg-amber-500 rounded-full"></div>
+              <div className="absolute bottom-0 left-0 w-full h-0.5 bg-amber-600 rounded-full"></div>
             )}
           </button>
         )}
@@ -464,44 +508,40 @@ export default function SenseDashboard() {
       {activeTab === 'monitor' || activeTab === 'silent' ? (
         <>
           {/* Interactive Map Section */}
-          <div className="glass-panel rounded-2xl p-6 space-y-6">
+          <div className="glass-panel rounded-2xl p-6 space-y-6 border border-slate-200/80 shadow-md shadow-slate-100/50 bg-white/95">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center space-y-4 sm:space-y-0">
-              <div className="flex items-center space-x-2 text-white">
-                <Layers className="w-5 h-5 text-indigo-400" />
-                <span className="font-bold">
+              <div className="flex items-center space-x-2 text-slate-900">
+                <Layers className="w-5 h-5 text-indigo-600" />
+                <span className="font-extrabold">
                   {activeTab === 'silent' ? 'Silent Devices Location Mappings' : 'Real-time Location Mappings'}
                 </span>
               </div>
 
               {/* Toggles Container */}
-              <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-4">
-                {/* Official Page Filter Toggles */}
+              <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-2 sm:space-y-0 sm:space-x-3">
+                {/* Official Page Searchable Combobox on Map */}
                 <div className="flex items-center space-x-2">
-                  <span className="text-xs text-gray-400 font-medium">Official Page:</span>
-                  <select
+                  <span className="text-xs text-slate-500 font-bold hidden md:inline">เพจทางการ:</span>
+                  <SearchableSelect
+                    options={officialPageOptions}
                     value={selectedOfficialPage}
-                    onChange={(e) => {
-                      setSelectedOfficialPage(e.target.value);
-                      setDevicePage(1); // Reset to page 1 on filter
+                    onChange={(val) => {
+                      setSelectedOfficialPage(val);
+                      setDevicePage(1);
                     }}
-                    className="bg-[#111827] border border-gray-800 rounded-lg text-xs font-semibold text-gray-200 py-1.5 px-3 focus:outline-none focus:border-indigo-500"
-                  >
-                    <option value="all">All Pages (เพจทั้งหมด)</option>
-                    {officialPages.map((p, idx) => (
-                      <option key={`${p.email}-${p.account_id || ''}-${idx}`} value={p.email}>
-                        {p.email} ({p.device_count} devices)
-                      </option>
-                    ))}
-                  </select>
+                    allOptionLabel="All Pages (เพจทางการทั้งหมด)"
+                    searchPlaceholder="พิมพ์เพื่อค้นหาเพจทางการ..."
+                    icon={<Users className="w-3.5 h-3.5 text-indigo-600 shrink-0" />}
+                  />
                 </div>
 
                 {/* Active Variable Toggles */}
                 <div className="flex items-center space-x-2">
-                  <span className="text-xs text-gray-400 font-medium">Show metric:</span>
+                  <span className="text-xs text-slate-500 font-bold hidden md:inline">Metric:</span>
                   <select
                     value={selectedVariable}
                     onChange={(e) => setSelectedVariable(e.target.value)}
-                    className="bg-[#111827] border border-gray-800 rounded-lg text-xs font-semibold text-gray-200 py-1.5 px-3 focus:outline-none focus:border-indigo-500"
+                    className="bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 py-2 px-3 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100/40 transition-all shadow-sm"
                   >
                     {variables.map((v) => (
                       <option key={v.key} value={v.key}>{v.name}</option>
@@ -520,22 +560,42 @@ export default function SenseDashboard() {
           </div>
 
           {/* Database Search & Details Table */}
-          <div className="glass-panel rounded-2xl p-6 space-y-6 border border-gray-800/80">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center space-y-4 sm:space-y-0">
-              <h4 className="font-bold text-white text-lg">
-                {activeTab === 'silent' ? 'Silent Devices Telemetry Log List' : 'System Telemetry Log List'}
-              </h4>
+          <div className="glass-panel rounded-2xl p-6 space-y-6 border border-slate-200/80 shadow-md shadow-slate-100/50 bg-white/95">
+            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center space-y-4 lg:space-y-0 gap-4">
+              <div className="flex items-center space-x-2.5">
+                <h4 className="font-extrabold text-slate-900 text-lg">
+                  {activeTab === 'silent' ? 'Silent Devices Telemetry Log List' : 'System Telemetry Log List'}
+                </h4>
+                {selectedOfficialPage !== 'all' && (
+                  <span className="px-2.5 py-0.5 rounded-full text-[11px] bg-indigo-50 text-indigo-700 font-extrabold border border-indigo-100/80">
+                    {filteredDevices.length} เครื่อง
+                  </span>
+                )}
+              </div>
               
-              <div className="flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-3 w-full sm:w-auto">
+              <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-3 w-full lg:w-auto">
+                {/* Official Page Searchable Combobox on Table */}
+                <SearchableSelect
+                  options={officialPageOptions}
+                  value={selectedOfficialPage}
+                  onChange={(val) => {
+                    setSelectedOfficialPage(val);
+                    setDevicePage(1);
+                  }}
+                  allOptionLabel="All Pages (เพจทางการทั้งหมด)"
+                  searchPlaceholder="พิมพ์เพื่อค้นหาเพจทางการ..."
+                  icon={<Users className="w-3.5 h-3.5 text-indigo-600 shrink-0" />}
+                />
+
                 {/* Search filter input */}
-                <div className="relative w-full sm:w-64">
-                  <Search className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                <div className="relative w-full sm:w-56">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
                     placeholder="Search Serial, IMEI, Site..."
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
-                    className="w-full bg-[#111827] border border-gray-800 rounded-lg py-2 pl-9 pr-4 text-xs focus:outline-none focus:border-indigo-500 text-white"
+                    className="w-full bg-white border border-slate-200 rounded-xl py-2 pl-9 pr-3.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100/40 transition-all shadow-sm font-medium"
                   />
                 </div>
 
@@ -543,7 +603,7 @@ export default function SenseDashboard() {
                 <select
                   value={sort}
                   onChange={(e) => setSort(e.target.value)}
-                  className="bg-[#111827] border border-gray-800 rounded-lg text-xs text-gray-400 py-2 px-4 focus:outline-none"
+                  className="bg-white border border-slate-200 rounded-xl text-xs text-slate-700 py-2 px-3 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100/40 transition-all shadow-sm font-semibold"
                 >
                   <option value="time_onsite">Sort by Time Onsite (Default)</option>
                   <option value="station">Sort by Station ID</option>
@@ -553,59 +613,61 @@ export default function SenseDashboard() {
             </div>
 
             {/* Datatable list */}
-            <div className="overflow-x-auto border border-gray-800 rounded-xl">
+            <div className="overflow-x-auto border border-slate-200/90 rounded-2xl shadow-sm">
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
-                  <tr className="bg-gray-900/60 text-gray-400 border-b border-gray-800">
-                    <th className="py-3 px-4 font-semibold">Station ID</th>
-                    <th className="py-3 px-4 font-semibold">Hardware IMEI</th>
-                    <th className="py-3 px-4 font-semibold">Site / Common Name</th>
-                    <th className="py-3 px-4 font-semibold text-indigo-400">
+                  <tr className="bg-slate-50 text-slate-600 border-b border-slate-200">
+                    <th className="py-3 px-4 font-bold">Station ID</th>
+                    <th className="py-3 px-4 font-bold">Hardware IMEI</th>
+                    <th className="py-3 px-4 font-bold">Site / Common Name</th>
+                    <th className="py-3 px-4 font-bold text-indigo-600">
                       {variables.find(v => v.key === selectedVariable)?.name || 'Metric'}
                     </th>
-                    <th className="py-3 px-4 font-semibold">Interval</th>
-                    <th className="py-3 px-4 font-semibold">Time Onsite</th>
-                    <th className="py-3 px-4 font-semibold">Status</th>
-                    <th className="py-3 px-4 font-semibold text-center">Actions</th>
+                    <th className="py-3 px-4 font-bold">Interval</th>
+                    <th className="py-3 px-4 font-bold">Time Onsite</th>
+                    <th className="py-3 px-4 font-bold">Status</th>
+                    <th className="py-3 px-4 font-bold text-center">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-800/40">
+                <tbody className="divide-y divide-slate-100 bg-white">
                   {loading ? (
                     <tr>
-                      <td colSpan={8} className="py-8 text-center text-gray-500">
-                        <div className="w-6 h-6 border-2 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin mx-auto mb-2"></div>
+                      <td colSpan={8} className="py-12 text-center text-slate-500">
+                        <div className="w-6 h-6 border-2 border-indigo-500/20 border-t-indigo-600 rounded-full animate-spin mx-auto mb-2"></div>
                         Fetching device data...
                       </td>
                     </tr>
                   ) : currentDevices.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="py-8 text-center text-gray-500">No active devices found matching criteria.</td>
+                      <td colSpan={8} className="py-12 text-center text-slate-500 font-medium">
+                        No devices found matching criteria.
+                      </td>
                     </tr>
                   ) : (
                     currentDevices.map((d, idx) => (
-                      <tr key={`${d.mongo_id || d.uuid || d.station || ''}-${idx}`} className="hover:bg-gray-800/20 transition-all">
-                        <td className="py-3.5 px-4 font-bold text-white">{d.station}</td>
-                        <td className="py-3.5 px-4 font-mono text-gray-300">{d.imei}</td>
-                        <td className="py-3.5 px-4 text-gray-400">{d.site || 'N/A'}</td>
-                        <td className="py-3.5 px-4 font-semibold text-indigo-400 font-mono">
+                      <tr key={`${d.mongo_id || d.uuid || d.station || ''}-${idx}`} className="hover:bg-indigo-50/20 transition-colors">
+                        <td className="py-3.5 px-4 font-extrabold text-slate-900">{d.station}</td>
+                        <td className="py-3.5 px-4 font-mono text-slate-600 font-medium">{d.imei}</td>
+                        <td className="py-3.5 px-4 text-slate-600 font-medium">{d.site || 'N/A'}</td>
+                        <td className="py-3.5 px-4 font-bold text-indigo-600 font-mono">
                           {d.current_value ? formatMetricValue(d.current_value[selectedVariable], selectedVariable) : '-'}
                         </td>
-                        <td className="py-3.5 px-4 text-gray-400">{d.interval}m</td>
-                        <td className="py-3.5 px-4 text-gray-400 font-mono">
+                        <td className="py-3.5 px-4 text-slate-500 font-medium">{d.interval}m</td>
+                        <td className="py-3.5 px-4 text-slate-500 font-mono">
                           {new Date(d.updated_at).toLocaleString('th-TH')}
                         </td>
                         <td className="py-3.5 px-4">
                           <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border ${
                             d.status === 'ACTIVE'
-                              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                               : d.status === 'MALFUNCTIONING'
-                              ? 'bg-amber-500/10 text-amber-400 border-amber-500/20 animate-pulse'
-                              : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
+                              ? 'bg-amber-50 text-amber-700 border-amber-200 animate-pulse'
+                              : 'bg-rose-50 text-rose-700 border-rose-200'
                           }`}>
                             <span className={`w-1.5 h-1.5 rounded-full ${
-                              d.status === 'ACTIVE' ? 'bg-emerald-400 animate-pulse' :
-                              d.status === 'MALFUNCTIONING' ? 'bg-amber-400 animate-pulse' :
-                              'bg-rose-400'
+                              d.status === 'ACTIVE' ? 'bg-emerald-500 animate-pulse' :
+                              d.status === 'MALFUNCTIONING' ? 'bg-amber-500 animate-pulse' :
+                              'bg-rose-500'
                             }`} />
                             {d.status === 'ACTIVE' ? 'ONLINE' : d.status}
                           </span>
@@ -613,7 +675,7 @@ export default function SenseDashboard() {
                         <td className="py-3.5 px-4 text-center">
                           <Link
                              href={`/dashboard/devices/${d.uuid || d.station}`}
-                            className="inline-flex items-center space-x-1 bg-indigo-600/10 hover:bg-indigo-600/20 text-indigo-400 border border-indigo-500/20 px-3 py-1 rounded-lg transition text-[11px] font-semibold"
+                            className="inline-flex items-center space-x-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-100 px-3 py-1.5 rounded-xl transition text-[11px] font-extrabold shadow-sm"
                           >
                             <span>Details</span>
                             <ArrowRight className="w-3.5 h-3.5" />
@@ -628,21 +690,21 @@ export default function SenseDashboard() {
 
             {/* Pagination Controls */}
             {!loading && totalDevicePages > 1 && (
-              <div className="px-4 py-3 bg-gray-900/10 flex justify-between items-center text-xs text-gray-400 font-medium">
+              <div className="px-4 py-3 bg-slate-50/70 border border-slate-200/80 rounded-xl flex justify-between items-center text-xs text-slate-500 font-medium">
                 <span>Showing {indexOfFirstDevice + 1}-{Math.min(indexOfLastDevice, sortedDevices.length)} of {sortedDevices.length} entries</span>
                 <div className="flex items-center space-x-2">
                   <button
                     onClick={() => setDevicePage((p) => Math.max(1, p - 1))}
                     disabled={devicePage === 1}
-                    className="p-1.5 bg-[#111827] border border-gray-800 rounded-lg text-gray-400 hover:text-white disabled:opacity-40 disabled:pointer-events-none transition"
+                    className="p-1.5 bg-white border border-slate-200 rounded-lg text-slate-600 hover:text-slate-900 disabled:opacity-40 disabled:pointer-events-none transition shadow-sm"
                   >
                     <ChevronLeft className="w-4 h-4" />
                   </button>
-                  <span className="font-semibold text-white px-2">Page {devicePage} of {totalDevicePages}</span>
+                  <span className="font-bold text-slate-800 px-2">Page {devicePage} of {totalDevicePages}</span>
                   <button
                     onClick={() => setDevicePage((p) => Math.min(totalDevicePages, p + 1))}
                     disabled={devicePage === totalDevicePages}
-                    className="p-1.5 bg-[#111827] border border-gray-800 rounded-lg text-gray-400 hover:text-white disabled:opacity-40 disabled:pointer-events-none transition"
+                    className="p-1.5 bg-white border border-slate-200 rounded-lg text-slate-600 hover:text-slate-900 disabled:opacity-40 disabled:pointer-events-none transition shadow-sm"
                   >
                     <ChevronRight className="w-4 h-4" />
                   </button>
@@ -652,58 +714,63 @@ export default function SenseDashboard() {
           </div>
 
           {/* Problematic Devices Anomaly List (Active threshold breaches) */}
-          <div className="glass-panel rounded-2xl p-6 space-y-6 border border-gray-800/80">
-            <div className="flex items-center space-x-2 text-white">
+          <div className="glass-panel rounded-2xl p-6 space-y-6 border border-slate-200/80 shadow-md shadow-slate-100/50 bg-white/95">
+            <div className="flex items-center space-x-2 text-slate-900">
               <AlertCircle className="w-5 h-5 text-amber-500 animate-pulse" />
-              <h4 className="font-bold text-lg">Active Device Anomalies & Failures (ff-preprocess-raw)</h4>
+              <h4 className="font-extrabold text-lg">Active Device Anomalies & Failures (ff-preprocess-raw)</h4>
+              {selectedOfficialPage !== 'all' && (
+                <span className="ml-2 px-2.5 py-0.5 rounded-full text-[11px] bg-amber-50 text-amber-700 font-bold border border-amber-100">
+                  {filteredAnomalies.length} anomalies
+                </span>
+              )}
             </div>
             
-            <p className="text-xs text-gray-400 leading-relaxed -mt-4">
+            <p className="text-xs text-slate-500 leading-relaxed -mt-4">
               The listing below displays active parameter threshold breaches detected by the auto-health watchdog service. 
-              Breaches automatically flag the device status as <span className="text-amber-500 font-semibold">MALFUNCTIONING</span>.
+              Breaches automatically flag the device status as <span className="text-amber-600 font-bold">MALFUNCTIONING</span>.
             </p>
 
-            <div className="overflow-x-auto border border-gray-800 rounded-xl">
+            <div className="overflow-x-auto border border-slate-200/90 rounded-2xl shadow-sm">
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
-                  <tr className="bg-gray-900/60 text-gray-400 border-b border-gray-800">
-                    <th className="py-3 px-4 font-semibold">Device ID</th>
-                    <th className="py-3 px-4 font-semibold">Sensor Parameter</th>
-                    <th className="py-3 px-4 font-semibold">Reported Value</th>
-                    <th className="py-3 px-4 font-semibold">Normal Range (Min-Max)</th>
-                    <th className="py-3 px-4 font-semibold">Detection Date</th>
-                    <th className="py-3 px-4 font-semibold">Resolution</th>
-                    <th className="py-3 px-4 font-semibold text-center">Inspect</th>
+                  <tr className="bg-slate-50 text-slate-600 border-b border-slate-200">
+                    <th className="py-3 px-4 font-bold">Device ID</th>
+                    <th className="py-3 px-4 font-bold">Sensor Parameter</th>
+                    <th className="py-3 px-4 font-bold">Reported Value</th>
+                    <th className="py-3 px-4 font-bold">Normal Range (Min-Max)</th>
+                    <th className="py-3 px-4 font-bold">Detection Date</th>
+                    <th className="py-3 px-4 font-bold">Resolution</th>
+                    <th className="py-3 px-4 font-bold text-center">Inspect</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-800/40">
+                <tbody className="divide-y divide-slate-100 bg-white">
                   {loading ? (
                     <tr>
-                      <td colSpan={7} className="py-6 text-center text-gray-500">Loading anomalies...</td>
+                      <td colSpan={7} className="py-8 text-center text-slate-500">Loading anomalies...</td>
                     </tr>
                   ) : currentAnomalies.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="py-6 text-center text-emerald-400 font-semibold">
+                      <td colSpan={7} className="py-8 text-center text-emerald-600 font-bold">
                         Zero Active Anomalies! All sensor metrics are within healthy limits.
                       </td>
                     </tr>
                   ) : (
                     currentAnomalies.map((a) => (
-                      <tr key={a.id} className="hover:bg-gray-800/20 transition-all">
-                        <td className="py-3.5 px-4 font-bold text-white">{a.device_id}</td>
-                        <td className="py-3.5 px-4 text-gray-300 capitalize">{a.sensor_type}</td>
-                        <td className="py-3.5 px-4 text-rose-400 font-mono font-semibold">{a.reported_val}</td>
-                        <td className="py-3.5 px-4 text-gray-400 font-mono">
+                      <tr key={a.id} className="hover:bg-slate-50/80 transition-colors">
+                        <td className="py-3.5 px-4 font-extrabold text-slate-900">{a.device_id}</td>
+                        <td className="py-3.5 px-4 text-slate-700 capitalize font-medium">{a.sensor_type}</td>
+                        <td className="py-3.5 px-4 text-rose-600 font-mono font-bold">{a.reported_val}</td>
+                        <td className="py-3.5 px-4 text-slate-500 font-mono">
                           {a.min_threshold} - {a.max_threshold}
                         </td>
-                        <td className="py-3.5 px-4 text-gray-400 font-mono">
+                        <td className="py-3.5 px-4 text-slate-500 font-mono">
                           {new Date(a.detected_at).toLocaleString('th-TH')}
                         </td>
                         <td className="py-3.5 px-4">
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${
                             a.resolved
-                              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                              : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              : 'bg-amber-50 text-amber-700 border-amber-200'
                           }`}>
                             {a.resolved ? 'RESOLVED' : 'UNRESOLVED'}
                           </span>
@@ -711,7 +778,7 @@ export default function SenseDashboard() {
                         <td className="py-3.5 px-4 text-center">
                           <Link
                             href={`/dashboard/devices/${a.device_id}`}
-                            className="inline-flex items-center space-x-1 bg-indigo-600/10 hover:bg-indigo-600/20 text-indigo-400 border border-indigo-500/20 px-3 py-1 rounded-lg transition text-[11px] font-semibold"
+                            className="inline-flex items-center space-x-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-100 px-3 py-1 rounded-lg transition text-[11px] font-bold"
                           >
                             <span>Analyze</span>
                             <ArrowRight className="w-3 h-3" />
@@ -726,21 +793,21 @@ export default function SenseDashboard() {
 
             {/* Pagination Controls */}
             {!loading && totalAnomalyPages > 1 && (
-              <div className="px-4 py-3 bg-gray-900/10 flex justify-between items-center text-xs text-gray-400 font-medium">
-                <span>Showing {indexOfFirstAnomaly + 1}-{Math.min(indexOfLastAnomaly, anomalies.length)} of {anomalies.length} entries</span>
+              <div className="px-4 py-3 bg-slate-50/70 border border-slate-200/80 rounded-xl flex justify-between items-center text-xs text-slate-500 font-medium">
+                <span>Showing {indexOfFirstAnomaly + 1}-{Math.min(indexOfLastAnomaly, filteredAnomalies.length)} of {filteredAnomalies.length} entries</span>
                 <div className="flex items-center space-x-2">
                   <button
                     onClick={() => setAnomalyPage((p) => Math.max(1, p - 1))}
                     disabled={anomalyPage === 1}
-                    className="p-1.5 bg-[#111827] border border-gray-800 rounded-lg text-gray-400 hover:text-white disabled:opacity-40 disabled:pointer-events-none transition"
+                    className="p-1.5 bg-white border border-slate-200 rounded-lg text-slate-600 hover:text-slate-900 disabled:opacity-40 disabled:pointer-events-none transition shadow-sm"
                   >
                     <ChevronLeft className="w-4 h-4" />
                   </button>
-                  <span className="font-semibold text-white px-2">Page {anomalyPage} of {totalAnomalyPages}</span>
+                  <span className="font-bold text-slate-800 px-2">Page {anomalyPage} of {totalAnomalyPages}</span>
                   <button
                     onClick={() => setAnomalyPage((p) => Math.min(totalAnomalyPages, p + 1))}
                     disabled={anomalyPage === totalAnomalyPages}
-                    className="p-1.5 bg-[#111827] border border-gray-800 rounded-lg text-gray-400 hover:text-white disabled:opacity-40 disabled:pointer-events-none transition"
+                    className="p-1.5 bg-white border border-slate-200 rounded-lg text-slate-600 hover:text-slate-900 disabled:opacity-40 disabled:pointer-events-none transition shadow-sm"
                   >
                     <ChevronRight className="w-4 h-4" />
                   </button>

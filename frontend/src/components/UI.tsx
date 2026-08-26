@@ -122,3 +122,7 @@ export function SelectInput({
   );
 }
 
+export { default as SearchableSelect } from './SearchableSelect';
+export type { SearchableOption } from './SearchableSelect';
+
+

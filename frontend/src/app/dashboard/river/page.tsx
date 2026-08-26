@@ -121,6 +121,26 @@ export default function RiverMonitorDashboard() {
     return [...devices, ...unregisteredDevices];
   }, [devices, unregisteredDevices]);
 
+  // Filtered devices for map rendering (respects search and status filter)
+  const mapDevices = React.useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    return allDevicesForMap.filter((d: any) => {
+      const matchSearch =
+        !term ||
+        (d.serial && d.serial.toLowerCase().includes(term)) ||
+        (d.name && d.name.toLowerCase().includes(term)) ||
+        (d.organization_name && d.organization_name.toLowerCase().includes(term)) ||
+        (d.province && d.province.toLowerCase().includes(term)) ||
+        (d.basin && d.basin.toLowerCase().includes(term)) ||
+        (d.hardware_imei && d.hardware_imei.toLowerCase().includes(term));
+
+      const matchStatus =
+        statusFilter === 'ALL' || (d.warning_status || 'NORMAL') === statusFilter;
+
+      return matchSearch && matchStatus;
+    });
+  }, [allDevicesForMap, searchTerm, statusFilter]);
+
   // Filtered devices for main list table view
   const filteredDevices = React.useMemo(() => {
     const list = activeTab === 'online' ? onlineDevices : offlineDevices;
@@ -285,7 +305,7 @@ export default function RiverMonitorDashboard() {
         title="Real-time Location Mappings"
         icon={<Layers className="w-5 h-5 text-indigo-650" />}
       >
-        <RiverMap devices={allDevicesForMap} />
+        <RiverMap devices={mapDevices} />
       </DashboardCard>
 
       {/* Real-time Basins Telemetry Overview */}

@@ -20,8 +20,12 @@ func NewFahfonHandler(u domain.FahfonUsecase) *FahfonHandler {
 func (h *FahfonHandler) ListDevices(c fiber.Ctx) error {
 	search := c.Query("search", "")
 	sortBy := c.Query("sort", "") // "time_onsite", "station", "imei"
+	officialPage := c.Query("official_page", "")
+	if officialPage == "" {
+		officialPage = c.Query("email", "")
+	}
 
-	devices, err := h.usecase.ListDevices(c.Context(), search, sortBy)
+	devices, err := h.usecase.ListDevices(c.Context(), search, sortBy, officialPage)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": err.Error(),

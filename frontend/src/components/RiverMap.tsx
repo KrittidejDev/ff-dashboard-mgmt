@@ -3,7 +3,7 @@
 import React, { useDeferredValue } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import MarkerClusterGroup from 'react-leaflet-cluster';
 import Link from 'next/link';
 import { ArrowRight, Activity, Cpu, Waves } from 'lucide-react';
@@ -17,6 +17,40 @@ const DefaultIcon = L.icon({
   popupAnchor: [1, -34],
 });
 L.Marker.prototype.options.icon = DefaultIcon;
+
+// Auto fit bounds helper when search/filter narrows down results
+function MapAutoBounds({ devices }: { devices: any[] }) {
+  const map = useMap();
+  const prevCountRef = React.useRef(devices.length);
+
+  React.useEffect(() => {
+    if (!devices || devices.length === 0) return;
+
+    if (devices.length === 1) {
+      const lat = parseFloat(devices[0].install_latitude);
+      const lng = parseFloat(devices[0].install_longitude);
+      if (!isNaN(lat) && !isNaN(lng)) {
+        map.flyTo([lat, lng], 14, { duration: 1 });
+      }
+    } else if (devices.length < 50 && devices.length !== prevCountRef.current) {
+      const latLngs: [number, number][] = [];
+      devices.forEach((d) => {
+        const lat = parseFloat(d.install_latitude);
+        const lng = parseFloat(d.install_longitude);
+        if (!isNaN(lat) && !isNaN(lng)) {
+          latLngs.push([lat, lng]);
+        }
+      });
+      if (latLngs.length > 0) {
+        const bounds = L.latLngBounds(latLngs);
+        map.fitBounds(bounds, { padding: [50, 50], maxZoom: 14 });
+      }
+    }
+    prevCountRef.current = devices.length;
+  }, [devices, map]);
+
+  return null;
+}
 
 interface RiverMapProps {
   devices: any[];
@@ -436,6 +470,7 @@ const createClusterIcon = (cluster: any) => {
         scrollWheelZoom={true}
         className="w-full h-full"
       >
+        <MapAutoBounds devices={filteredValidDevices} />
         <TileLayer
           attribution='&copy; <a href="https://www.google.com/maps">Google Maps</a>'
           url="https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}&hl=th"

@@ -195,7 +195,7 @@ type OfficialPage struct {
 }
 
 type FahfonRepository interface {
-	GetDevices(ctx context.Context, search string, sortBy string) ([]*FahfonDeviceMaster, error)
+	GetDevices(ctx context.Context, search string, sortBy string, officialPage string) ([]*FahfonDeviceMaster, error)
 	GetDeviceDetail(ctx context.Context, station string) (*FahfonDeviceMaster, *FahfonCurrent, error)
 	GetDeviceHistory(ctx context.Context, deviceID string, start, end time.Time, rangeType string) ([]*FahfonCurrent, error)
 	GetConflictReport(ctx context.Context) ([]*ConflictDevice, error)
@@ -213,7 +213,7 @@ type FahfonRepository interface {
 }
 
 type FahfonUsecase interface {
-	ListDevices(ctx context.Context, search string, sortBy string) ([]*FahfonDeviceMaster, error)
+	ListDevices(ctx context.Context, search string, sortBy string, officialPage string) ([]*FahfonDeviceMaster, error)
 	GetDeviceDetail(ctx context.Context, station string, rangeType string) (*FahfonDeviceMaster, *FahfonCurrent, []*FahfonCurrent, error)
 	GetConflictReport(ctx context.Context) ([]*ConflictDevice, error)
 	ListOfficialPages(ctx context.Context) ([]*OfficialPage, error)

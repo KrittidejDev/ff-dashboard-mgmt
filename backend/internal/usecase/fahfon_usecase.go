@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"ff-dashboard-mgmt/backend/internal/domain"
@@ -28,8 +29,8 @@ type redisTelemetry struct {
 	RainAccHourly float64 `json:"rain_acc_hourly"`
 }
 
-func (u *fahfonUsecase) ListDevices(ctx context.Context, search string, sortBy string) ([]*domain.FahfonDeviceMaster, error) {
-	return u.repo.GetDevices(ctx, search, sortBy)
+func (u *fahfonUsecase) ListDevices(ctx context.Context, search string, sortBy string, officialPage string) ([]*domain.FahfonDeviceMaster, error) {
+	return u.repo.GetDevices(ctx, search, sortBy, officialPage)
 }
 
 func (u *fahfonUsecase) GetDeviceDetail(ctx context.Context, station string, rangeType string) (*domain.FahfonDeviceMaster, *domain.FahfonCurrent, []*domain.FahfonCurrent, error) {
@@ -125,35 +126,73 @@ func (u *fahfonUsecase) UpdateThreshold(ctx context.Context, id int32, minVal, m
 }
 
 func (u *fahfonUsecase) ListOfficialPages(ctx context.Context) ([]*domain.OfficialPage, error) {
-	regs, err := u.mongoRepo.ListRegistrations(ctx)
-	if err != nil {
-		return nil, err
-	}
+	const cacheKey = "cache:fahfon:official_pages"
 
-	type pageKey struct {
-		Email     string
-		AccountID string
-	}
-
-	counts := make(map[pageKey]int)
-	for _, reg := range regs {
-		if reg.Email != "" {
-			key := pageKey{
-				Email:     reg.Email,
-				AccountID: reg.AccountID,
+	// Check Redis cache first for high throughput
+	if u.redis != nil {
+		if cached, err := u.redis.Get(ctx, cacheKey).Result(); err == nil && cached != "" {
+			var cachedPages []*domain.OfficialPage
+			if err := json.Unmarshal([]byte(cached), &cachedPages); err == nil && len(cachedPages) > 0 {
+				return cachedPages, nil
 			}
-			counts[key]++
 		}
 	}
 
-	var pages []*domain.OfficialPage
-	for key, count := range counts {
-		pages = append(pages, &domain.OfficialPage{
-			Email:     key.Email,
-			AccountID: key.AccountID,
-			Count:     count,
-		})
+	// 1. Primary: Fetch from PostgreSQL device_master (fast, indexed, reliable)
+	pages, err := u.repo.GetOfficialPages(ctx)
+	if err == nil && len(pages) > 0 {
+		// Cache in Redis for 60 seconds
+		if u.redis != nil {
+			if data, err := json.Marshal(pages); err == nil {
+				_ = u.redis.Set(ctx, cacheKey, string(data), 60*time.Second).Err()
+			}
+		}
+		return pages, nil
 	}
 
+	// 2. Fallback: Query MongoDB if PostgreSQL returned 0 records or error
+	if u.mongoRepo != nil {
+		regs, mErr := u.mongoRepo.ListRegistrations(ctx)
+		if mErr == nil && len(regs) > 0 {
+			type pageKey struct {
+				Email     string
+				AccountID string
+			}
+
+			counts := make(map[pageKey]int)
+			for _, reg := range regs {
+				if reg.Email != "" {
+					key := pageKey{
+						Email:     reg.Email,
+						AccountID: reg.AccountID,
+					}
+					counts[key]++
+				}
+			}
+
+			var mPages []*domain.OfficialPage
+			for key, count := range counts {
+				mPages = append(mPages, &domain.OfficialPage{
+					Email:     key.Email,
+					AccountID: key.AccountID,
+					Count:     count,
+				})
+			}
+
+			if len(mPages) > 0 {
+				if u.redis != nil {
+					if data, err := json.Marshal(mPages); err == nil {
+						_ = u.redis.Set(ctx, cacheKey, string(data), 60*time.Second).Err()
+					}
+				}
+				return mPages, nil
+			}
+		}
+	}
+
+	// Return whatever we have (even empty array) without throwing 500
+	if pages == nil {
+		pages = []*domain.OfficialPage{}
+	}
 	return pages, nil
 }

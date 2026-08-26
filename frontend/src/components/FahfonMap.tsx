@@ -108,12 +108,10 @@ const FahfonMap = React.memo(function FahfonMap({
     [deferredDevices]
   );
 
-  // Tab-filtered devices — ALL of them, no downsampling
+  // Tab-filtered devices — ALL valid devices including OFFLINE in Monitor Overview
   const targetDevices = React.useMemo(() => {
     if (activeTab === 'silent') return validDevices.filter((d) => d.status === 'OFFLINE');
-    return validDevices.filter(
-      (d) => d.status === 'ACTIVE' || d.status === 'MALFUNCTIONING'
-    );
+    return validDevices;
   }, [validDevices, activeTab]);
 
   // Summary stats for legend panel

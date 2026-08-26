@@ -23,7 +23,7 @@ func NewFahfonRepository(pool *pgxpool.Pool) domain.FahfonRepository {
 	return &fahfonRepository{pool: pool}
 }
 
-func (r *fahfonRepository) GetDevices(ctx context.Context, search string, sortBy string) ([]*domain.FahfonDeviceMaster, error) {
+func (r *fahfonRepository) GetDevices(ctx context.Context, search string, sortBy string, officialPage string) ([]*domain.FahfonDeviceMaster, error) {
 	query := `
 		SELECT dm.id, 
 		       COALESCE(dm.mongo_id, '') AS mongo_id, 
@@ -76,8 +76,13 @@ func (r *fahfonRepository) GetDevices(ctx context.Context, search string, sortBy
 	var conditions []string
 
 	if search != "" {
-		conditions = append(conditions, "(dm.station ILIKE $1 OR dm.imei ILIKE $1 OR dm.owner ILIKE $1 OR dm.site ILIKE $1 OR dm.email ILIKE $1)")
+		conditions = append(conditions, fmt.Sprintf("(dm.station ILIKE $%d OR dm.imei ILIKE $%d OR dm.owner ILIKE $%d OR dm.site ILIKE $%d OR dm.email ILIKE $%d)", len(args)+1, len(args)+1, len(args)+1, len(args)+1, len(args)+1))
 		args = append(args, "%"+search+"%")
+	}
+
+	if officialPage != "" && officialPage != "all" {
+		conditions = append(conditions, fmt.Sprintf("(dm.email = $%d OR dm.account_id = $%d)", len(args)+1, len(args)+1))
+		args = append(args, officialPage)
 	}
 
 	if len(conditions) > 0 {
@@ -658,29 +663,50 @@ func (r *fahfonRepository) UpdateThreshold(ctx context.Context, id int32, minVal
 }
 
 func (r *fahfonRepository) GetOfficialPages(ctx context.Context) ([]*domain.OfficialPage, error) {
+	// 1. Try reading from dedicated sense_official_pages table
 	query := `
-		SELECT COALESCE(email, '') AS email, COALESCE(account_id, '') AS account_id, COUNT(*) AS device_count
-		FROM device_master
-		WHERE email IS NOT NULL AND email != ''
-		GROUP BY email, account_id
-		ORDER BY email ASC
+		SELECT COALESCE(email, '') AS email, COALESCE(account_id, '') AS account_id, COALESCE(device_count, 0) AS device_count
+		FROM sense_official_pages
+		WHERE is_active = TRUE AND device_count > 0
+		ORDER BY device_count DESC, email ASC
 	`
 	rows, err := r.pool.Query(ctx, query)
-	if err != nil {
-		return nil, fmt.Errorf("db: get official pages: %w", err)
-	}
-	defer rows.Close()
-
-	var pages []*domain.OfficialPage
-	for rows.Next() {
-		var p domain.OfficialPage
-		err := rows.Scan(&p.Email, &p.AccountID, &p.Count)
-		if err != nil {
-			return nil, fmt.Errorf("db: scan official page: %w", err)
+	if err == nil {
+		defer rows.Close()
+		var pages []*domain.OfficialPage
+		for rows.Next() {
+			var p domain.OfficialPage
+			if scanErr := rows.Scan(&p.Email, &p.AccountID, &p.Count); scanErr == nil {
+				pages = append(pages, &p)
+			}
 		}
-		pages = append(pages, &p)
+		if len(pages) > 0 {
+			return pages, nil
+		}
 	}
-	return pages, nil
+
+	// 2. Fallback: Aggregate directly from device_master by email
+	fallbackQuery := `
+		SELECT COALESCE(email, '') AS email, COALESCE(MAX(account_id), '') AS account_id, COUNT(*) AS device_count
+		FROM device_master
+		WHERE email IS NOT NULL AND email != ''
+		GROUP BY email
+		ORDER BY COUNT(*) DESC, email ASC
+	`
+	fRows, fErr := r.pool.Query(ctx, fallbackQuery)
+	if fErr != nil {
+		return nil, fmt.Errorf("db: get official pages: %w", fErr)
+	}
+	defer fRows.Close()
+
+	var fallbackPages []*domain.OfficialPage
+	for fRows.Next() {
+		var p domain.OfficialPage
+		if scanErr := fRows.Scan(&p.Email, &p.AccountID, &p.Count); scanErr == nil {
+			fallbackPages = append(fallbackPages, &p)
+		}
+	}
+	return fallbackPages, nil
 }
 
 func toBangkokTime(t time.Time) time.Time {
