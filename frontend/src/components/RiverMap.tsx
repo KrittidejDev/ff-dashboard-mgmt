@@ -19,22 +19,81 @@ const DefaultIcon = L.icon({
 L.Marker.prototype.options.icon = DefaultIcon;
 
 // Auto fit bounds helper when search/filter narrows down results
-function MapAutoBounds({ devices }: { devices: any[] }) {
+// Ensures Leaflet recalculates viewport bounds immediately on mount, flexbox layout, and fullscreen
+function MapResizeObserver() {
+  const map = useMap();
+  React.useEffect(() => {
+    const handleResize = () => {
+      try {
+        map.invalidateSize();
+      } catch (e) {}
+    };
+    handleResize();
+    const t1 = setTimeout(handleResize, 100);
+    const t2 = setTimeout(handleResize, 400);
+    const t3 = setTimeout(handleResize, 1000);
+    window.addEventListener('resize', handleResize);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [map]);
+  return null;
+}
+
+function MapAutoBounds({ devices, activeSerials }: { devices: any[]; activeSerials?: string[] }) {
   const map = useMap();
   const prevCountRef = React.useRef(devices.length);
+  const flownTargetRef = React.useRef<string | null>(null);
+  const prevActiveKeyRef = React.useRef<string | null>(null);
 
   React.useEffect(() => {
     if (!devices || devices.length === 0) return;
 
+    // 1. If activeSerials provided (e.g. in War Room), fly to active cameras cluster!
+    if (activeSerials && activeSerials.length > 0) {
+      const activeKey = activeSerials.slice().sort().join(',');
+      if (prevActiveKeyRef.current !== activeKey) {
+        prevActiveKeyRef.current = activeKey;
+
+        const activeDevices = devices.filter((d: any) => activeSerials.includes(d.serial));
+        const latLngs: [number, number][] = [];
+        activeDevices.forEach((d: any) => {
+          const lat = parseFloat(d.install_latitude);
+          const lng = parseFloat(d.install_longitude);
+          if (!isNaN(lat) && !isNaN(lng)) {
+            latLngs.push([lat, lng]);
+          }
+        });
+
+        if (latLngs.length === 1) {
+          map.flyTo(latLngs[0], 14, { duration: 1.2 });
+          return;
+        } else if (latLngs.length > 1) {
+          const bounds = L.latLngBounds(latLngs);
+          map.flyToBounds(bounds, { padding: [45, 45], maxZoom: 14, duration: 1.2 });
+          return;
+        }
+      }
+      return;
+    }
+
+    // 2. Standard single device / list filter auto-bounds
     if (devices.length === 1) {
       const lat = parseFloat(devices[0].install_latitude);
       const lng = parseFloat(devices[0].install_longitude);
       if (!isNaN(lat) && !isNaN(lng)) {
-        map.flyTo([lat, lng], 14, { duration: 1 });
+        const targetKey = `${devices[0].id || devices[0].serial}_${lat}_${lng}`;
+        if (flownTargetRef.current !== targetKey) {
+          flownTargetRef.current = targetKey;
+          map.setView([lat, lng], 14);
+        }
       }
     } else if (devices.length < 50 && devices.length !== prevCountRef.current) {
       const latLngs: [number, number][] = [];
-      devices.forEach((d) => {
+      devices.forEach((d: any) => {
         const lat = parseFloat(d.install_latitude);
         const lng = parseFloat(d.install_longitude);
         if (!isNaN(lat) && !isNaN(lng)) {
@@ -47,13 +106,19 @@ function MapAutoBounds({ devices }: { devices: any[] }) {
       }
     }
     prevCountRef.current = devices.length;
-  }, [devices, map]);
+  }, [devices, activeSerials, map]);
 
   return null;
 }
 
 interface RiverMapProps {
   devices: any[];
+  className?: string;
+  height?: string;
+  compact?: boolean;
+  activeSerials?: string[];
+  disableCluster?: boolean;
+  onSelectStation?: (serial: string) => void;
 }
 
 // Custom cluster icon — clean numeric bubble matching the design system from Fahfon Sense
@@ -78,7 +143,7 @@ const createClusterIcon = (cluster: any) => {
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
   });
-};const RiverMap = React.memo(function RiverMap({ devices }: RiverMapProps) {
+};const RiverMap = React.memo(function RiverMap({ devices, className, height, compact, activeSerials, onSelectStation, disableCluster }: RiverMapProps) {
   const defaultCenter: [number, number] = [13.8420, 100.5976];
 
   const deferredDevices = useDeferredValue(devices);
@@ -89,6 +154,7 @@ const createClusterIcon = (cluster: any) => {
   const [showWarning, setShowWarning] = React.useState(true);
   const [showOffline, setShowOffline] = React.useState(true);
   const [showUnregistered, setShowUnregistered] = React.useState(true);
+  const [mapStyle, setMapStyle] = React.useState<'satellite' | 'dark' | 'street'>(compact ? 'satellite' : 'satellite');
 
   // Status classification helper
   const getDeviceStatus = React.useCallback((d: any) => {
@@ -184,30 +250,50 @@ const createClusterIcon = (cluster: any) => {
       let textColor = '#4338ca'; // default Indigo text
 
       if (status === 'OFFLINE') {
-        borderColor = '#ef4444'; // Red
-        bgColor = '#fee2e2'; // Light Red background
-        textColor = '#b91c1c'; // Dark Red text
+        borderColor = '#64748b'; // Slate Gray
+        bgColor = '#1e293b'; // Slate 800 background
+        textColor = '#cbd5e1'; // Light Slate text
       } else if (status === 'UNREGISTERED') {
         borderColor = '#64748b'; // Slate Gray
         bgColor = '#f1f5f9'; // Light Gray background
         textColor = '#334155'; // Dark Gray text
-      } else if (status === 'WARNING') {
-        borderColor = '#d97706'; // Amber/Orange border
-        bgColor = '#fef3c7'; // Light Yellow/Amber warning background!
-        textColor = '#92400e'; // Dark Amber/Orange text
+      } else if (d.warning_status === 'EMERGENCY') {
+        borderColor = '#e11d48'; // Bright Rose/Crimson
+        bgColor = '#881337'; // Deep Crimson background
+        textColor = '#ffffff'; // Crisp White text
+      } else if (d.warning_status === 'CRITICAL') {
+        borderColor = '#f43f5e'; // Rose
+        bgColor = '#9f1239'; // Dark Rose background
+        textColor = '#ffffff'; // Crisp White text
+      } else if (d.warning_status === 'WARNING') {
+        borderColor = '#f59e0b'; // Amber
+        bgColor = '#78350f'; // Dark Amber background
+        textColor = '#ffffff'; // Crisp White text
+      }
+
+      const isActiveOnWall = Boolean(activeSerials && activeSerials.includes(d.serial));
+      if (isActiveOnWall) {
+        borderColor = '#06b6d4';
+        textColor = '#0e7490';
       }
 
       const pinIcon = L.divIcon({
         className: 'river-pin',
         html: `
-          <div style="display:flex;flex-direction:column;align-items:center;width:44px;height:50px;">
+          <div style="position:relative;display:flex;flex-direction:column;align-items:center;width:44px;height:50px;">
+            ${isActiveOnWall ? `
+              <div style="position:absolute;top:-7px;right:-8px;z-index:20;display:flex;align-items:center;justify-content:center;">
+                <span style="position:absolute;width:18px;height:18px;border-radius:9999px;background:#06b6d4;opacity:0.8;animation:ping 1.2s cubic-bezier(0,0,0.2,1) infinite;"></span>
+                <span style="position:relative;padding:1px 3.5px;border-radius:4px;font-size:7px;font-weight:900;background:#0891b2;color:#fff;border:1px solid #67e8f9;letter-spacing:0.5px;box-shadow:0 2px 4px rgba(0,0,0,0.5);">LIVE</span>
+              </div>
+            ` : ''}
             <div style="
               width:40px;height:40px;border-radius:50%;
-              background:${bgColor};border:2.5px solid ${borderColor};
+              background:${bgColor};border:${isActiveOnWall ? '3.5px solid #06b6d4' : `2.5px solid ${borderColor}`};
               display:flex;align-items:center;justify-content:center;
               font-family:monospace;font-size:9px;font-weight:900;
               color:${textColor};
-              box-shadow:0 2px 8px ${borderColor}55;
+              box-shadow:${isActiveOnWall ? '0 0 16px rgba(6, 182, 212, 0.9), 0 0 6px #0891b2' : `0 2px 8px ${borderColor}55`};
             ">${displayVal}</div>
             <div style="
               width:0;height:0;
@@ -227,6 +313,7 @@ const createClusterIcon = (cluster: any) => {
           key={d.serial}
           position={[lat, lng]}
           icon={pinIcon}
+          zIndexOffset={isActiveOnWall ? 2500 : 0}
         >
           <Popup className="custom-popup" key={d.serial}>
             <div className="p-1 space-y-3.5 min-w-[240px] text-slate-800">
@@ -359,7 +446,7 @@ const createClusterIcon = (cluster: any) => {
     : defaultCenter;
 
   return (
-    <div className={`w-full h-[450px] rounded-3xl overflow-hidden border border-slate-200 relative z-10 shadow-xl transition-opacity duration-500 ${isStale ? 'opacity-90' : 'opacity-100'}`}>
+    <div className={`w-full ${height || (className ? "" : "h-[450px]")} rounded-3xl overflow-hidden border border-slate-200 relative z-10 shadow-xl transition-opacity duration-500 ${isStale ? "opacity-90" : "opacity-100"} ${className || ""}`}>
       <style>{`
         .river-pin { background: transparent !important; border: none !important; }
         .leaflet-popup-content-wrapper {
@@ -390,6 +477,7 @@ const createClusterIcon = (cluster: any) => {
       `}</style>
 
       {/* Floating Legend Panel (Fahfon Sense reuseable style) */}
+      {(!compact && validDevices.length > 1) && (
       <div className="absolute top-4 right-4 z-[1000] bg-white/95 border border-slate-200 rounded-2xl p-4 shadow-xl pointer-events-auto flex flex-col space-y-3 min-w-[250px]">
         <div className="flex items-center space-x-2 border-b border-slate-100 pb-2">
           <Activity className="w-4 h-4 text-indigo-600" />
@@ -464,39 +552,111 @@ const createClusterIcon = (cluster: any) => {
           </label>
         </div>
       </div>
+      )}
+
+            {/* Map Layer Switcher: Satellite / Dark / Street */}
+      <div className="absolute top-2 right-2 z-[1000] flex items-center bg-black/80 backdrop-blur border border-slate-700/80 rounded-lg p-0.5 text-[9.5px] font-bold shadow-lg select-none">
+        <button
+          type="button"
+          onClick={() => setMapStyle('satellite')}
+          className={`px-1.5 py-0.5 rounded transition ${mapStyle === 'satellite' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}
+          title="สลับมุมมองดาวเทียม (Google Satellite Hybrid)"
+        >
+          🛰️ ดาวเทียม
+        </button>
+        <button
+          type="button"
+          onClick={() => setMapStyle('dark')}
+          className={`px-1.5 py-0.5 rounded transition ${mapStyle === 'dark' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}
+          title="สลับมุมมอง Dark Mode (Esri Dark Canvas)"
+        >
+          🌑 Dark
+        </button>
+        <button
+          type="button"
+          onClick={() => setMapStyle('street')}
+          className={`px-1.5 py-0.5 rounded transition ${mapStyle === 'street' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}
+          title="สลับมุมมองแผนที่ถนน (Roadmap)"
+        >
+          🗺️ ถนน
+        </button>
+      </div>
 
       <MapContainer
         center={centerPosition}
-        zoom={10}
+        zoom={validDevices.length === 1 ? 14 : 10}
         scrollWheelZoom={true}
         className="w-full h-full"
       >
-        <MapAutoBounds devices={filteredValidDevices} />
-        <TileLayer
-          attribution='&copy; <a href="https://www.google.com/maps">Google Maps</a>'
-          url="https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}&hl=th"
-          subdomains={['0', '1', '2', '3']}
-          maxZoom={20}
-          keepBuffer={4}
-          updateWhenIdle={true}
-        />
-        <MarkerClusterGroup
-          chunkedLoading
-          chunkInterval={50}
-          chunkDelay={10}
-          maxClusterRadius={40}
-          spiderfyOnMaxZoom={true}
-          showCoverageOnHover={false}
-          zoomToBoundsOnClick={true}
-          iconCreateFunction={createClusterIcon}
-        >
-          {renderedMarkers}
-        </MarkerClusterGroup>
+        <MapResizeObserver />
+        <MapAutoBounds devices={filteredValidDevices} activeSerials={activeSerials} />
+        {/* 100% Free, Zero-Watermark High-Performance GIS Tiles */}
+        {mapStyle === 'satellite' ? (
+          <TileLayer
+            key="tile-satellite"
+            attribution='&copy; Google Maps Satellite'
+            url="https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}&hl=th"
+            subdomains={['0', '1', '2', '3']}
+            maxZoom={20}
+            keepBuffer={6}
+            updateWhenIdle={false}
+          />
+        ) : mapStyle === 'dark' ? (
+          <TileLayer
+            key="tile-dark"
+            attribution='&copy; Esri World Dark Gray Base'
+            url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}"
+            maxZoom={19}
+            keepBuffer={6}
+            updateWhenIdle={false}
+          />
+        ) : (
+          <TileLayer
+            key="tile-street"
+            attribution='&copy; Google Maps Roadmap'
+            url="https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}&hl=th"
+            subdomains={['0', '1', '2', '3']}
+            maxZoom={20}
+            keepBuffer={6}
+            updateWhenIdle={false}
+          />
+        )}
+        {disableCluster ? (
+          renderedMarkers
+        ) : (
+          <MarkerClusterGroup
+            chunkedLoading
+            chunkInterval={50}
+            chunkDelay={10}
+            maxClusterRadius={40}
+            spiderfyOnMaxZoom={true}
+            showCoverageOnHover={false}
+            zoomToBoundsOnClick={true}
+            iconCreateFunction={createClusterIcon}
+          >
+            {renderedMarkers}
+          </MarkerClusterGroup>
+        )}
       </MapContainer>
     </div>
   );
-}, (prev, next) =>
-  prev.devices === next.devices
-);
+}, (prev, next) => {
+  if (prev.className !== next.className || prev.height !== next.height || prev.compact !== next.compact || prev.disableCluster !== next.disableCluster) return false;
+  const prevActive = prev.activeSerials?.join(",") || "";
+  const nextActive = next.activeSerials?.join(",") || "";
+  if (prevActive !== nextActive) return false;
+  if (prev.devices === next.devices) return true;
+  if (!prev.devices || !next.devices || prev.devices.length !== next.devices.length) return false;
+  if (prev.devices.length === 1 && next.devices.length === 1) {
+    const p = prev.devices[0];
+    const n = next.devices[0];
+    return p.serial === n.serial && 
+           p.install_latitude === n.install_latitude && 
+           p.install_longitude === n.install_longitude &&
+           p.warning_status === n.warning_status &&
+           p.net_water_level_cm === n.net_water_level_cm;
+  }
+  return false;
+});
 
 export default RiverMap;

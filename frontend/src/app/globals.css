@@ -292,3 +292,51 @@ body {
 
 
 
+
+/* ==========================================================================
+   WAR ROOM NOC HIGH-CONTRAST DARK THEME PRESERVATION (HIGH PERFORMANCE)
+   Overrides .light global rules so text in the War Room is ultra-clear & crisp
+   ========================================================================== */
+.warroom-noc h1, 
+.warroom-noc h2, 
+.warroom-noc h3, 
+.warroom-noc h4, 
+.warroom-noc .text-white,
+.warroom-noc .font-bold.text-white,
+.warroom-noc span.text-white,
+.light .warroom-noc .text-white,
+.light .warroom-noc .font-bold.text-white,
+.light .warroom-noc span.text-white,
+.light .warroom-noc [class*="text-white"] {
+  color: #ffffff !important;
+}
+
+.warroom-noc .text-slate-100,
+.light .warroom-noc .text-slate-100 {
+  color: #f1f5f9 !important;
+}
+
+.warroom-noc .text-slate-200,
+.light .warroom-noc .text-slate-200 {
+  color: #e2e8f0 !important;
+}
+
+.warroom-noc .text-slate-300,
+.light .warroom-noc .text-slate-300 {
+  color: #cbd5e1 !important;
+}
+
+.warroom-noc .text-slate-400,
+.light .warroom-noc .text-slate-400 {
+  color: #94a3b8 !important;
+}
+
+.warroom-noc select {
+  background-color: #000000 !important;
+  color: #ffffff !important;
+}
+
+.warroom-noc select option {
+  background-color: #0f172a !important;
+  color: #ffffff !important;
+}

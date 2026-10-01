@@ -34,6 +34,7 @@ interface WaterChartProps {
   emergencyThresh?: number;
   gradientId?: string;
   showRawLine?: boolean;
+  theme?: 'light' | 'dark';
 }
 
 const ChartBase = React.memo(function ChartBase({
@@ -150,6 +151,7 @@ export function WaterChart({
   emergencyThresh,
   gradientId = "waterChartGradient",
   showRawLine = true,
+  theme = 'light',
 }: WaterChartProps) {
   const [isMounted, setIsMounted] = useState(false);
   useEffect(() => {
@@ -201,27 +203,34 @@ export function WaterChart({
     if (!container) return;
 
     const performScroll = () => {
+      if (!container) return;
       const scrollWidth = container.scrollWidth;
       const clientWidth = container.clientWidth;
 
-      if (safeSelectedIdx !== null && processedData.length > 1) {
+      if (isManualSelection && safeSelectedIdx !== null && processedData.length > 1) {
         const ratio = safeSelectedIdx / (processedData.length - 1);
-        if (isManualSelection) {
-          container.scrollLeft = (ratio * scrollWidth) - (clientWidth / 2);
-        } else {
-          container.scrollLeft = scrollWidth - clientWidth;
-        }
+        container.scrollLeft = (ratio * scrollWidth) - (clientWidth / 2);
       } else {
+        // ALWAYS scroll smoothly to the latest data point at the far right!
         container.scrollLeft = scrollWidth - clientWidth;
       }
     };
 
-    const rafId1 = requestAnimationFrame(() => {
+    performScroll();
+    const rafId = requestAnimationFrame(() => {
       requestAnimationFrame(performScroll);
     });
+    const t1 = setTimeout(performScroll, 50);
+    const t2 = setTimeout(performScroll, 150);
+    const t3 = setTimeout(performScroll, 350);
+    const t4 = setTimeout(performScroll, 700);
 
     return () => {
-      cancelAnimationFrame(rafId1);
+      cancelAnimationFrame(rafId);
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+      clearTimeout(t4);
     };
   }, [processedData, zoomLevel, safeSelectedIdx, isManualSelection]);
 
@@ -343,8 +352,12 @@ export function WaterChart({
   return (
     <div className="relative w-full flex flex-col gap-2">
       <div className="flex justify-between items-center px-1 shrink-0">
-        <span className="text-[10px] font-black text-indigo-650 bg-indigo-50 px-2 py-0.5 rounded-md animate-pulse">
-          ↔️ ปัดหรือลากเพื่อเลื่อนดูแผนภูมิ (ซ้าย-ขวา)
+        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md flex items-center space-x-1 ${
+          theme === 'dark'
+            ? 'text-cyan-300 bg-slate-800 border border-slate-700 shadow-sm'
+            : 'text-indigo-900 bg-indigo-100 border border-indigo-200'
+        }`}>
+          <span>↔️ เลื่อนดูกราฟย้อนหลัง (ซ้าย-ขวา)</span>
         </span>
         <div className="flex items-center gap-1 bg-slate-100/80 backdrop-blur-xs p-1 rounded-xl border border-slate-200/50 shadow-sm">
           <button
@@ -385,9 +398,11 @@ export function WaterChart({
           </button>
         </div>
       </div>
-      <div className="flex w-full overflow-hidden rounded-2xl border border-slate-200/80 shadow-sm bg-white p-3 pb-6">
+      <div className={`flex w-full overflow-hidden rounded-2xl border shadow-sm p-3 pb-6 ${theme === 'dark' ? 'bg-slate-950 border-slate-800 text-slate-100' : 'bg-white border-slate-200/80'}`}>
+
         {/* Frozen Left Y-Axis */}
-        <div style={{ width: "40px", height: `${height - 75}px`, position: "relative" }} className="shrink-0 select-none pointer-events-none z-10 bg-white">
+        <div style={{ width: "40px", height: `${height - 75}px`, position: "relative" }} className={`shrink-0 select-none pointer-events-none z-10 ${theme === 'dark' ? 'bg-slate-950' : 'bg-white'}`}>
+
           <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
             <AreaChart data={processedData} margin={{ top: 15, right: 0, left: 0, bottom: 35 }}>
               <XAxis dataKey="label" hide />
@@ -449,7 +464,8 @@ export function WaterChart({
                     const filterStatus = dataPoint.filterStatus || 'NORMAL';
 
                     return (
-                      <div className="rounded-xl border border-indigo-100 bg-white/95 backdrop-blur-sm p-3 shadow-xl text-xs space-y-2 min-w-[210px]">
+                      <div className={`rounded-xl border backdrop-blur-md p-3 shadow-2xl text-xs space-y-2 min-w-[210px] ${theme === 'dark' ? 'bg-slate-900/95 border-slate-700 text-white' : 'bg-white/95 border-indigo-100 text-slate-800'}`}>
+
                         <div className="font-bold text-slate-700 border-b border-slate-100 pb-1 flex items-center justify-between gap-2">
                           <span className="truncate">⏰ {dataPoint.fullLabel || label}</span>
                           {filterStatus && (
@@ -486,7 +502,7 @@ export function WaterChart({
                           )}
                           {rawDist !== null && rawDist !== undefined && (
                             <div className="text-[10px] text-slate-400 font-mono pt-1 border-t border-slate-100 flex justify-between">
-                              <span>ระยะเซ็นเซอร์ดิบ:</span>
+                              <span>ระยะเซนเซอร์:</span>
                               <span>{`${rawDist.toFixed(1)} cm`}</span>
                             </div>
                           )}

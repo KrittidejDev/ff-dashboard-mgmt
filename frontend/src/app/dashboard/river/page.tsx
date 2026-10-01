@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import {
-  Waves,
+  Waves, Radio,
   RefreshCw,
   Layers,
   Cpu,
@@ -231,6 +231,13 @@ export default function RiverMonitorDashboard() {
                 อัพเดทล่าสุด {lastRefreshed.toLocaleTimeString('th-TH')}
               </span>
             )}
+            <Link
+              href="/dashboard/river/warroom"
+              className="flex items-center space-x-2 bg-gradient-to-r from-rose-600 to-indigo-600 hover:from-rose-500 hover:to-indigo-500 text-white px-4 py-2 rounded-xl text-sm font-bold transition shadow-md shadow-rose-900/20"
+            >
+              <Radio className="w-4 h-4 animate-pulse" />
+              <span>River War Room</span>
+            </Link>
             <button
               onClick={fetchDevices}
               className="flex items-center space-x-2 bg-white hover:bg-slate-50 text-slate-650 border border-slate-200 px-4 py-2 rounded-xl text-sm font-semibold transition shadow-sm"

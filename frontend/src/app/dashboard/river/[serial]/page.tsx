@@ -22,13 +22,25 @@ import {
   ChevronRight,
   ZoomIn,
   ZoomOut,
-  Target
+  Target,
+  MapPin
 } from 'lucide-react';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine } from 'recharts';
 import { DashboardCard } from '@/components/UI';
 import { RtspPlayer } from '@/components/RtspPlayer';
 import { WaterChart } from '@/components/WaterChart';
+
+const RiverMap = dynamic(() => import('@/components/RiverMap'), {
+  ssr: false,
+  loading: () => (
+    <div className="w-full h-full min-h-[420px] rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-center flex-col space-y-3">
+      <div className="w-8 h-8 border-2 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin"></div>
+      <span className="text-sm text-slate-400 font-medium">กำลังโหลดแผนที่สถานี...</span>
+    </div>
+  ),
+});
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081/api/v1';
 const getProxiedImageUrl = (url: string) => {
@@ -140,6 +152,7 @@ export default function DeviceDetailPage({ params }: PageProps) {
   // PTZ Control States
   const [ptzSpeed, setPtzSpeed] = useState<number>(0.5);
   const [rotateVideo, setRotateVideo] = useState(false);
+  const [showPtzControl, setShowPtzControl] = useState(false);
 
   const handlePTZ = async (action: string, speed = 0.5) => {
     try {
@@ -578,6 +591,10 @@ export default function DeviceDetailPage({ params }: PageProps) {
     return undefined;
   };
 
+  const mapDevices = React.useMemo(() => {
+    return device ? [device] : [];
+  }, [device?.id, device?.serial, device?.install_latitude, device?.install_longitude, device?.warning_status, device?.net_water_level_cm]);
+
   const warningThresh = getThreshCm(warningThreshObj);
   const criticalThresh = getThreshCm(criticalThreshObj);
   const emergencyThresh = getThreshCm(emergencyThreshObj);
@@ -728,35 +745,50 @@ export default function DeviceDetailPage({ params }: PageProps) {
         </div>
       </div>
 
-      {/* Row 1: CCTV & Alert Thresholds (Side-by-side: CCTV 2 parts, Thresholds 1 part) */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Live CCTV Card (2 parts) */}
-        <div className="lg:col-span-2">
+      {/* Row 1: Live CCTV & Interactive Station Map (Side-by-side: CCTV 1 part, Map 1 part) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
+        {/* Live CCTV Card */}
+        <div className="flex flex-col">
           <DashboardCard 
             title="กล้องวงจรปิดเรียลไทม์ (Live)" 
             icon={<Camera className="w-5 h-5 text-indigo-650" />}
             badge={
-              <button 
-                onClick={() => setRotateVideo(!rotateVideo)}
-                className={`flex items-center space-x-1.5 px-3 py-1 rounded-xl text-xs font-bold transition border ${
-                  rotateVideo 
-                    ? 'bg-amber-500 border-amber-500 text-white shadow-sm' 
-                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                }`}
-              >
-                <span>กลับหัวภาพ 180°</span>
-              </button>
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setShowPtzControl(!showPtzControl)}
+                  className={`flex items-center space-x-1.5 px-3 py-1 rounded-xl text-xs font-bold transition border ${
+                    showPtzControl
+                      ? "bg-indigo-600 border-indigo-600 text-white shadow-xs"
+                      : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                  }`}
+                >
+                  <span>🕹️ ควบคุม PTZ</span>
+                </button>
+                <button 
+                  type="button"
+                  onClick={() => setRotateVideo(!rotateVideo)}
+                  className={`flex items-center space-x-1.5 px-3 py-1 rounded-xl text-xs font-bold transition border ${
+                    rotateVideo 
+                      ? "bg-amber-500 border-amber-500 text-white shadow-xs" 
+                      : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                  }`}
+                >
+                  <span>กลับหัวภาพ 180°</span>
+                </button>
+              </div>
             }
+            className="h-full flex flex-col justify-between overflow-hidden"
           >
-            <div className={`w-full h-full overflow-hidden rounded-2xl transition-transform duration-300 ${rotateVideo ? 'rotate-180' : ''}`}>
+            <div className={`w-full aspect-video overflow-hidden rounded-2xl bg-black transition-transform duration-300 ${rotateVideo ? "rotate-180" : ""}`}>
               <RtspPlayer serial={serial} apiFetch={apiFetch} apiBaseUrl={API_BASE_URL} className="w-full h-full" />
             </div>
             
-            {/* PTZ D-Pad Control Panel */}
-            <div className="flex flex-wrap items-center justify-center sm:justify-around gap-6 p-5 border-t border-slate-100 bg-slate-50/50 rounded-b-2xl mt-4 font-sans">
-              <div className="flex flex-col space-y-1 items-center sm:items-start min-w-[150px] shrink-0">
-                <span className="text-xs font-bold text-slate-500">ความเร็ว PTZ (PTZ Speed)</span>
-                <div className="flex items-center space-x-3">
+            {/* PTZ Compact Control Panel (Collapsible / Non-overflowing) */}
+            {showPtzControl && (
+              <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 border-t border-slate-100 bg-slate-50/80 rounded-2xl mt-4 font-sans animate-in fade-in duration-200">
+                <div className="flex items-center space-x-2 shrink-0">
+                  <span className="text-[11px] font-bold text-slate-500">ความเร็ว:</span>
                   <input
                     type="range"
                     min="0.1"
@@ -764,204 +796,138 @@ export default function DeviceDetailPage({ params }: PageProps) {
                     step="0.1"
                     value={ptzSpeed}
                     onChange={(e) => setPtzSpeed(parseFloat(e.target.value))}
-                    className="w-32 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-650"
+                    className="w-20 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-650"
                   />
-                  <span className="text-xs font-mono font-bold text-slate-700 bg-white border border-slate-200 px-2 py-0.5 rounded-lg">{(ptzSpeed * 100).toFixed(0)}%</span>
+                  <span className="text-[11px] font-mono font-bold text-slate-700 bg-white border border-slate-200 px-1.5 py-0.5 rounded-lg">{(ptzSpeed * 100).toFixed(0)}%</span>
                 </div>
-              </div>
 
-              <div className="relative w-36 h-36 bg-slate-200/80 rounded-full flex items-center justify-center shadow-inner border border-slate-350/60 shrink-0">
-                <button
-                  onMouseDown={() => handlePTZStart('MOVE_UP')}
-                  onMouseUp={handlePTZStop}
-                  onMouseLeave={handlePTZStop}
-                  onTouchStart={() => handlePTZStart('MOVE_UP')}
-                  onTouchEnd={handlePTZStop}
-                  className="absolute top-1.5 w-9 h-9 flex items-center justify-center rounded-xl bg-white border border-slate-200 shadow-sm text-slate-600 active:bg-indigo-50 active:text-indigo-650 transition cursor-pointer"
-                  title="Move Up"
-                >
-                  <ChevronUp className="w-5 h-5" />
-                </button>
-                <button
-                  onMouseDown={() => handlePTZStart('MOVE_DOWN')}
-                  onMouseUp={handlePTZStop}
-                  onMouseLeave={handlePTZStop}
-                  onTouchStart={() => handlePTZStart('MOVE_DOWN')}
-                  onTouchEnd={handlePTZStop}
-                  className="absolute bottom-1.5 w-9 h-9 flex items-center justify-center rounded-xl bg-white border border-slate-200 shadow-sm text-slate-600 active:bg-indigo-50 active:text-indigo-650 transition cursor-pointer"
-                  title="Move Down"
-                >
-                  <ChevronDown className="w-5 h-5" />
-                </button>
-                <button
-                  onMouseDown={() => handlePTZStart('MOVE_LEFT')}
-                  onMouseUp={handlePTZStop}
-                  onMouseLeave={handlePTZStop}
-                  onTouchStart={() => handlePTZStart('MOVE_LEFT')}
-                  onTouchEnd={handlePTZStop}
-                  className="absolute left-1.5 w-9 h-9 flex items-center justify-center rounded-xl bg-white border border-slate-200 shadow-sm text-slate-600 active:bg-indigo-50 active:text-indigo-650 transition cursor-pointer"
-                  title="Move Left"
-                >
-                  <ChevronLeft className="w-5 h-5" />
-                </button>
-                <button
-                  onMouseDown={() => handlePTZStart('MOVE_RIGHT')}
-                  onMouseUp={handlePTZStop}
-                  onMouseLeave={handlePTZStop}
-                  onTouchStart={() => handlePTZStart('MOVE_RIGHT')}
-                  onTouchEnd={handlePTZStop}
-                  className="absolute right-1.5 w-9 h-9 flex items-center justify-center rounded-xl bg-white border border-slate-200 shadow-sm text-slate-600 active:bg-indigo-50 active:text-indigo-650 transition cursor-pointer"
-                  title="Move Right"
-                >
-                  <ChevronRight className="w-5 h-5" />
-                </button>
-                <button
-                  onClick={handlePTZStop}
-                  className="w-11 h-11 flex items-center justify-center rounded-full bg-indigo-600 shadow-md text-white hover:bg-indigo-700 transition cursor-pointer text-[10px] font-black uppercase tracking-wider"
-                  title="Stop Movement"
-                >
-                  Stop
-                </button>
-              </div>
-
-              <div className="flex items-center space-x-2 justify-center shrink-0">
-                <button
-                  onMouseDown={() => handlePTZStart('ZOOM_IN')}
-                  onMouseUp={handlePTZStop}
-                  onMouseLeave={handlePTZStop}
-                  onTouchStart={() => handlePTZStart('ZOOM_IN')}
-                  onTouchEnd={handlePTZStop}
-                  className="flex items-center space-x-1.5 bg-white hover:bg-slate-50 text-slate-600 border border-slate-200 px-3 py-2 rounded-xl text-xs font-bold transition shadow-sm cursor-pointer"
-                >
-                  <ZoomIn className="w-4 h-4 text-indigo-600" />
-                  <span>Zoom In</span>
-                </button>
-                <button
-                  onMouseDown={() => handlePTZStart('ZOOM_OUT')}
-                  onMouseUp={handlePTZStop}
-                  onMouseLeave={handlePTZStop}
-                  onTouchStart={() => handlePTZStart('ZOOM_OUT')}
-                  onTouchEnd={handlePTZStop}
-                  className="flex items-center space-x-1.5 bg-white hover:bg-slate-50 text-slate-600 border border-slate-200 px-3 py-2 rounded-xl text-xs font-bold transition shadow-sm cursor-pointer"
-                >
-                  <ZoomOut className="w-4 h-4 text-indigo-600" />
-                  <span>Zoom Out</span>
-                </button>
-              </div>
-            </div>
-          </DashboardCard>
-        </div>
-
-        {/* Alert Thresholds Card (1 part) */}
-        <div className="lg:col-span-1 flex flex-col gap-6">
-          <DashboardCard title="การตั้งค่าระดับแจ้งเตือนภัยและความถี่ส่งข้อมูล" icon={<AlertCircle className="w-5 h-5 text-indigo-650" />}>
-            <div className="space-y-4">
-              <div className="flex flex-col gap-3">
-                {['WARNING','CRITICAL','EMERGENCY'].map(level=>{
-                  const cfg=thresholdsForm[level]||{id:null,threshold_cm:'',threshold_pct:'',freq_duration_sec:'',is_active:false};
-                  const colorClass=level==='EMERGENCY' 
-                    ? 'bg-rose-50/30 border-rose-200 text-rose-700' 
-                    : level==='CRITICAL' 
-                    ? 'bg-amber-50/30 border-amber-200 text-amber-700' 
-                    : 'bg-indigo-50/30 border-indigo-200 text-indigo-700';
-                  
-                  const activeLabelClass = level==='EMERGENCY' ? 'text-rose-700' : level==='CRITICAL' ? 'text-amber-700' : 'text-indigo-700';
-                  const labelText=level==='WARNING' ? 'ระดับเฝ้าระวัง (Warning)' : level==='CRITICAL' ? 'ระดับวิกฤต (Critical)' : 'ระดับฉุกเฉิน (Emergency)';
-                  
-                  return (
-                    <div key={level} className={`p-4 rounded-2xl border transition-all ${cfg.is_active ? colorClass : 'bg-slate-50/50 border-slate-200/80 opacity-70'}`}>
-                      <div className="flex items-center justify-between mb-3">
-                        <span className={`text-xs font-black tracking-wide ${cfg.is_active ? activeLabelClass : 'text-slate-500'}`}>{labelText}</span>
-                        <label className="relative inline-flex items-center cursor-pointer select-none">
-                          <input 
-                            type="checkbox" 
-                            checked={cfg.is_active} 
-                            onChange={e=>setThresholdsForm(p=>({...p,[level]:{...p[level],is_active:e.target.checked}}))}
-                            className="sr-only peer" 
-                          />
-                          <div className={`relative w-9 h-5 bg-slate-200 rounded-full peer peer-focus:outline-none transition-colors duration-200
-                            after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all after:shadow-sm
-                            peer-checked:after:translate-x-4
-                            ${level === 'EMERGENCY' ? 'peer-checked:bg-rose-500' : level === 'CRITICAL' ? 'peer-checked:bg-amber-500' : 'peer-checked:bg-indigo-600'}
-                          `}></div>
-                        </label>
-                      </div>
-                      
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <div>
-                          <span className="text-[10px] font-bold text-slate-700 block mb-1">
-                            ระดับน้ำแจ้งเตือน (ซม. / cm)
-                          </span>
-                          <input 
-                            type="number" 
-                            step="0.1" 
-                            placeholder="เช่น 50.0" 
-                            value={cfg.threshold_cm} 
-                            disabled={!cfg.is_active}
-                            onChange={e=>setThresholdsForm(p=>({...p,[level]:{...p[level],threshold_cm:e.target.value}}))}
-                            className="w-full bg-white border border-slate-200 rounded-xl py-1.5 px-3 text-xs focus:outline-none focus:border-indigo-500 disabled:opacity-50 disabled:bg-slate-100/50 font-mono" 
-                          />
-                        </div>
-                        <div>
-                          <span className="text-[10px] font-bold text-slate-500 block mb-1">ความถี่ส่งข้อมูล (วินาที)</span>
-                          <input 
-                            type="number" 
-                            placeholder="เช่น 300" 
-                            value={cfg.freq_duration_sec} 
-                            disabled={!cfg.is_active}
-                            onChange={e=>setThresholdsForm(p=>({...p,[level]:{...p[level],freq_duration_sec:e.target.value}}))}
-                            className="w-full bg-white border border-slate-200 rounded-xl py-1.5 px-3 text-xs focus:outline-none focus:border-indigo-500 disabled:opacity-50 disabled:bg-slate-100/50 font-mono" 
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="flex justify-end pt-2">
-                <button onClick={handleSaveThresholds} disabled={savingThresholds}
-                  className="flex items-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-md transition disabled:opacity-50">
-                  {savingThresholds ? <><RefreshCw className="w-3 h-3 animate-spin" /><span>กำลังบันทึก...</span></> : <span>บันทึกเกณฑ์แจ้งเตือน</span>}
-                </button>
-              </div>
-            </div>
-          </DashboardCard>
-
-          {/* Normal State Data Interval Card (durationSEC) */}
-          <DashboardCard title="ตั้งค่าความถี่ปกติ / durationSEC" icon={<RefreshCw className="w-5 h-5 text-indigo-650" />}>
-            <div className="space-y-4">
-              <div className="p-4 rounded-2xl border border-slate-200 bg-slate-50/50">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-black tracking-wide text-slate-700">ความถี่ส่งข้อมูลสภาวะปกติ (วินาที)</span>
+                <div className="flex items-center space-x-1 bg-white border border-slate-200 p-1 rounded-xl shadow-xs shrink-0">
+                  <button
+                    type="button"
+                    onMouseDown={() => handlePTZStart("MOVE_LEFT")}
+                    onMouseUp={handlePTZStop}
+                    onMouseLeave={handlePTZStop}
+                    onTouchStart={() => handlePTZStart("MOVE_LEFT")}
+                    onTouchEnd={handlePTZStop}
+                    className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-600 active:bg-indigo-50 active:text-indigo-650 transition cursor-pointer"
+                    title="Move Left"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onMouseDown={() => handlePTZStart("MOVE_UP")}
+                    onMouseUp={handlePTZStop}
+                    onMouseLeave={handlePTZStop}
+                    onTouchStart={() => handlePTZStart("MOVE_UP")}
+                    onTouchEnd={handlePTZStop}
+                    className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-600 active:bg-indigo-50 active:text-indigo-650 transition cursor-pointer"
+                    title="Move Up"
+                  >
+                    <ChevronUp className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handlePTZStop}
+                    className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[9px] font-black uppercase tracking-wider shadow-xs transition cursor-pointer"
+                    title="Stop"
+                  >
+                    STOP
+                  </button>
+                  <button
+                    type="button"
+                    onMouseDown={() => handlePTZStart("MOVE_DOWN")}
+                    onMouseUp={handlePTZStop}
+                    onMouseLeave={handlePTZStop}
+                    onTouchStart={() => handlePTZStart("MOVE_DOWN")}
+                    onTouchEnd={handlePTZStop}
+                    className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-600 active:bg-indigo-50 active:text-indigo-650 transition cursor-pointer"
+                    title="Move Down"
+                  >
+                    <ChevronDown className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onMouseDown={() => handlePTZStart("MOVE_RIGHT")}
+                    onMouseUp={handlePTZStop}
+                    onMouseLeave={handlePTZStop}
+                    onTouchStart={() => handlePTZStart("MOVE_RIGHT")}
+                    onTouchEnd={handlePTZStop}
+                    className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-600 active:bg-indigo-50 active:text-indigo-650 transition cursor-pointer"
+                    title="Move Right"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
                 </div>
-                <div className="flex gap-2">
-                  <input 
-                    type="number" 
-                    placeholder="เช่น 300" 
-                    value={configForm.default_duration_sec} 
-                    onChange={e=>setConfigForm(p=>({...p,default_duration_sec:e.target.value}))}
-                    className="w-full bg-white border border-slate-200 rounded-xl py-1.5 px-3 text-xs focus:outline-none focus:border-indigo-500 font-mono" 
-                  />
-                  <button onClick={handleSaveConfig} disabled={savingConfig}
-                    className="shrink-0 flex items-center justify-center bg-indigo-650 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2 rounded-xl shadow-md transition disabled:opacity-50">
-                    {savingConfig ? 'กำลังบันทึก...' : 'บันทึก'}
+
+                <div className="flex items-center space-x-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onMouseDown={() => handlePTZStart("ZOOM_IN")}
+                    onMouseUp={handlePTZStop}
+                    onMouseLeave={handlePTZStop}
+                    onTouchStart={() => handlePTZStart("ZOOM_IN")}
+                    onTouchEnd={handlePTZStop}
+                    className="flex items-center space-x-1 bg-white hover:bg-slate-50 text-slate-600 border border-slate-200 px-2 py-1 rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
+                  >
+                    <ZoomIn className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>In</span>
+                  </button>
+                  <button
+                    type="button"
+                    onMouseDown={() => handlePTZStart("ZOOM_OUT")}
+                    onMouseUp={handlePTZStop}
+                    onMouseLeave={handlePTZStop}
+                    onTouchStart={() => handlePTZStart("ZOOM_OUT")}
+                    onTouchEnd={handlePTZStop}
+                    className="flex items-center space-x-1 bg-white hover:bg-slate-50 text-slate-600 border border-slate-200 px-2 py-1 rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
+                  >
+                    <ZoomOut className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>Out</span>
                   </button>
                 </div>
               </div>
+            )}
+          </DashboardCard>
+        </div>
+
+        {/* Interactive Station Map Card */}
+        <div className="flex flex-col">
+          <DashboardCard 
+            title="แผนที่ตำแหน่งสถานี (Station Location)" 
+            icon={<MapPin className="w-5 h-5 text-indigo-650" />}
+            badge={
+              device?.install_latitude && device?.install_longitude ? (
+                <span className="text-[11px] font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 px-2.5 py-1 rounded-xl">
+                  {parseFloat(device.install_latitude).toFixed(4)}, {parseFloat(device.install_longitude).toFixed(4)}
+                </span>
+              ) : undefined
+            }
+            className="h-full flex flex-col justify-between overflow-hidden"
+          >
+            <div className="w-full aspect-video min-h-[300px] rounded-2xl overflow-hidden relative border border-slate-200 shadow-inner flex-1">
+              {device && (
+                <RiverMap 
+                  devices={mapDevices} 
+                  height="h-full" 
+                  className="w-full h-full min-h-[300px]" 
+                  compact={true} 
+                />
+              )}
             </div>
           </DashboardCard>
         </div>
       </div>
 
-      {/* Row 2: Graph (Full width) */}
+      {/* Row 2: Graph (Full width 100%) */}
       <div>
         <DashboardCard title="กราฟวิเคราะห์ระดับน้ำย้อนหลัง" icon={<Activity className="w-5 h-5 text-indigo-600" />}
           badge={
             <div className="flex items-center space-x-2 bg-slate-100 p-1 rounded-xl">
-              {(['hourly','6hourly','daily'] as const).map(r => (
+              {(["hourly","6hourly","daily"] as const).map(r => (
                 <button key={r} onClick={() => setResolution(r)}
-                  className={`py-1.5 px-3 text-xs font-bold rounded-lg transition ${resolution===r?'bg-white text-indigo-700 shadow-sm':'text-slate-500'}`}>
-                  {r==='hourly'?'รายชั่วโมง':r==='6hourly'?'ราย 6 ชั่วโมง':'รายวัน (30 วัน)'}
+                  className={`py-1.5 px-3 text-xs font-bold rounded-lg transition ${resolution===r?"bg-white text-indigo-700 shadow-sm":"text-slate-500"}`}>
+                  {r==="hourly"?"รายชั่วโมง":r==="6hourly"?"ราย 6 ชั่วโมง":"รายวัน (30 วัน)"}
                 </button>
               ))}
             </div>
@@ -981,13 +947,13 @@ export default function DeviceDetailPage({ params }: PageProps) {
                 onClick={() => setShowRawLine(prev => !prev)}
                 className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold transition border cursor-pointer select-none ${
                   showRawLine
-                    ? 'bg-amber-50 text-amber-800 border-amber-300 shadow-xs'
-                    : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'
+                    ? "bg-amber-50 text-amber-800 border-amber-300 shadow-xs"
+                    : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"
                 }`}
                 title="กดเพื่อเปิด/ปิดการแสดงผลเส้นสัญญาณระดับน้ำดิบ (Raw)"
               >
-                <span className={`w-2 h-2 rounded-full ${showRawLine ? 'bg-amber-500 animate-pulse' : 'bg-slate-300'}`} />
-                <span>{showRawLine ? '🟠 เส้นระดับน้ำดิบ (Raw): เปิด' : '⚪ เส้นระดับน้ำดิบ (Raw): ปิด'}</span>
+                <span className={`w-2 h-2 rounded-full ${showRawLine ? "bg-amber-500 animate-pulse" : "bg-slate-300"}`} />
+                <span>{showRawLine ? "🟠 เส้นระดับน้ำดิบ (Raw): เปิด" : "⚪ เส้นระดับน้ำดิบ (Raw): ปิด"}</span>
               </button>
             </div>
 
@@ -1031,7 +997,7 @@ export default function DeviceDetailPage({ params }: PageProps) {
               </div>
             </div>
           </div>
-          <div className="h-[400px] w-full mt-4" style={{ minHeight: '400px' }}>
+          <div className="h-[400px] w-full mt-4" style={{ minHeight: "400px" }}>
             {loading ? (
               <div className="w-full h-full flex flex-col justify-center items-center text-slate-400">
                 <div className="w-8 h-8 border-2 border-indigo-550/20 border-t-indigo-600 rounded-full animate-spin mb-3"></div>
@@ -1054,6 +1020,122 @@ export default function DeviceDetailPage({ params }: PageProps) {
             )}
           </div>
         </DashboardCard>
+      </div>
+
+      {/* Row 3: Alert Thresholds & Normal Interval Settings (Horizontal Under Graph) */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+        {/* Alert Thresholds Card (~67% / 8 cols) */}
+        <div className="lg:col-span-8 flex flex-col">
+          <DashboardCard 
+            title="การตั้งค่าระดับแจ้งเตือนภัยและความถี่ส่งข้อมูล" 
+            icon={<AlertCircle className="w-5 h-5 text-indigo-650" />}
+            className="h-full flex flex-col justify-between"
+          >
+            <div className="space-y-4 flex-1 flex flex-col justify-between">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {["WARNING","CRITICAL","EMERGENCY"].map(level=>{
+                  const cfg=thresholdsForm[level]||{id:null,threshold_cm:"",threshold_pct:"",freq_duration_sec:"",is_active:false};
+                  const colorClass=level==="EMERGENCY" 
+                    ? "bg-rose-50/40 border-rose-200 text-rose-700" 
+                    : level==="CRITICAL" 
+                    ? "bg-amber-50/40 border-amber-200 text-amber-700" 
+                    : "bg-indigo-50/40 border-indigo-200 text-indigo-700";
+                  
+                  const activeLabelClass = level==="EMERGENCY" ? "text-rose-700" : level==="CRITICAL" ? "text-amber-700" : "text-indigo-700";
+                  const labelText=level==="WARNING" ? "เฝ้าระวัง (Warning)" : level==="CRITICAL" ? "วิกฤต (Critical)" : "ฉุกเฉิน (Emergency)";
+                  
+                  return (
+                    <div key={level} className={`p-4 rounded-2xl border transition-all flex flex-col justify-between ${cfg.is_active ? colorClass : "bg-slate-50/50 border-slate-200/80 opacity-70"}`}>
+                      <div className="flex items-center justify-between mb-3">
+                        <span className={`text-xs font-black tracking-wide ${cfg.is_active ? activeLabelClass : "text-slate-500"}`}>{labelText}</span>
+                        <label className="relative inline-flex items-center cursor-pointer select-none">
+                          <input 
+                            type="checkbox" 
+                            checked={cfg.is_active} 
+                            onChange={e=>setThresholdsForm(p=>({...p,[level]:{...p[level],is_active:e.target.checked}}))}
+                            className="sr-only peer" 
+                          />
+                          <div className={`relative w-9 h-5 bg-slate-200 rounded-full peer peer-focus:outline-none transition-colors duration-200
+                            after:content-[] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all after:shadow-sm
+                            peer-checked:after:translate-x-4
+                            ${level === "EMERGENCY" ? "peer-checked:bg-rose-500" : level === "CRITICAL" ? "peer-checked:bg-amber-500" : "peer-checked:bg-indigo-600"}
+                          `}></div>
+                        </label>
+                      </div>
+                      
+                      <div className="space-y-2.5">
+                        <div>
+                          <span className="text-[10px] font-bold text-slate-700 block mb-1">
+                            ระดับน้ำเตือน (ซม.)
+                          </span>
+                          <input 
+                            type="number" 
+                            step="0.1" 
+                            placeholder="เช่น 50.0" 
+                            value={cfg.threshold_cm} 
+                            disabled={!cfg.is_active}
+                            onChange={e=>setThresholdsForm(p=>({...p,[level]:{...p[level],threshold_cm:e.target.value}}))}
+                            className="w-full bg-white border border-slate-200 rounded-xl py-1.5 px-3 text-xs focus:outline-none focus:border-indigo-500 disabled:opacity-50 disabled:bg-slate-100/50 font-mono shadow-xs" 
+                          />
+                        </div>
+                        <div>
+                          <span className="text-[10px] font-bold text-slate-500 block mb-1">ความถี่ส่ง (วินาที)</span>
+                          <input 
+                            type="number" 
+                            placeholder="เช่น 300" 
+                            value={cfg.freq_duration_sec} 
+                            disabled={!cfg.is_active}
+                            onChange={e=>setThresholdsForm(p=>({...p,[level]:{...p[level],freq_duration_sec:e.target.value}}))}
+                            className="w-full bg-white border border-slate-200 rounded-xl py-1.5 px-3 text-xs focus:outline-none focus:border-indigo-500 disabled:opacity-50 disabled:bg-slate-100/50 font-mono shadow-xs" 
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="flex justify-end pt-2">
+                <button onClick={handleSaveThresholds} disabled={savingThresholds}
+                  className="flex items-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-5 py-2.5 rounded-xl shadow-md transition disabled:opacity-50 cursor-pointer">
+                  {savingThresholds ? <><RefreshCw className="w-3.5 h-3.5 animate-spin" /><span>กำลังบันทึก...</span></> : <span>บันทึกเกณฑ์แจ้งเตือน</span>}
+                </button>
+              </div>
+            </div>
+          </DashboardCard>
+        </div>
+
+        {/* Normal State Data Interval Card (durationSEC) (~33% / 4 cols) */}
+        <div className="lg:col-span-4 flex flex-col">
+          <DashboardCard 
+            title="ตั้งค่าความถี่ปกติ / durationSEC" 
+            icon={<RefreshCw className="w-5 h-5 text-indigo-650" />}
+            className="h-full flex flex-col justify-between"
+          >
+            <div className="space-y-4 flex-1 flex flex-col justify-between">
+              <div className="p-4 rounded-2xl border border-slate-200 bg-slate-50/50 space-y-3">
+                <span className="text-xs font-black tracking-wide text-slate-700 block">ความถี่ส่งข้อมูลสภาวะปกติ (วินาที)</span>
+                <p className="text-[11px] text-slate-500 leading-relaxed">
+                  กำหนดรอบเวลาที่อุปกรณ์จะส่งแพ็กเก็ตข้อมูลระดับน้ำเข้าสู่ระบบเมื่ออยู่ในสถานะปกติ (Default: 300 วินาที / 5 นาที)
+                </p>
+                <div className="pt-2">
+                  <input 
+                    type="number" 
+                    placeholder="เช่น 300" 
+                    value={configForm.default_duration_sec} 
+                    onChange={e=>setConfigForm(p=>({...p,default_duration_sec:e.target.value}))}
+                    className="w-full bg-white border border-slate-200 rounded-xl py-2 px-3 text-xs focus:outline-none focus:border-indigo-500 font-mono shadow-xs" 
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end pt-2">
+                <button onClick={handleSaveConfig} disabled={savingConfig}
+                  className="w-full sm:w-auto flex items-center justify-center bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-5 py-2.5 rounded-xl shadow-md transition disabled:opacity-50 cursor-pointer">
+                  {savingConfig ? "กำลังบันทึก..." : "บันทึกความถี่ปกติ"}
+                </button>
+              </div>
+            </div>
+          </DashboardCard>
+        </div>
       </div>
 
       {/* Log Table */}

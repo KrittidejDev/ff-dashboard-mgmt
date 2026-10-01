@@ -46,7 +46,7 @@ export default function RiverStationHealthPage() {
   const [fromDate, setFromDate] = useState<string>('');
   const [toDate, setToDate] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'ALL' | 'ONGOING' | 'RESOLVED'>('ALL');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'ONGOING' | 'RECOVERED'>('ALL');
 
   // Handle Preset Change
   const applyPreset = (preset: 'all' | 'today' | 'yesterday' | '7days' | '30days') => {
@@ -500,7 +500,7 @@ export default function RiverStationHealthPage() {
               >
                 <option value="ALL">ทุกสถานะ (All)</option>
                 <option value="ONGOING">🔴 กำลังดับอยู่ (Ongoing)</option>
-                <option value="RESOLVED">🟢 กู้คืนแล้ว (Resolved)</option>
+                <option value="RECOVERED">🟢 กู้คืนแล้ว (Recovered)</option>
               </select>
               <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-2.5 pointer-events-none" />
             </div>
@@ -561,7 +561,7 @@ export default function RiverStationHealthPage() {
                       ) : (
                         <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 border border-emerald-100 font-black text-[10px] px-2.5 py-0.5 rounded">
                           <CheckCircle2 className="w-2.5 h-2.5" />
-                          RESOLVED
+                          RECOVERED
                         </span>
                       )}
                     </td>

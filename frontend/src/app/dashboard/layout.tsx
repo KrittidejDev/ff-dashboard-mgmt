@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { useAuth } from '@/context/AuthContext';
+import { usePathname } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 
 export default function DashboardLayout({
@@ -10,6 +11,8 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const { user, loading } = useAuth();
+  const pathname = usePathname();
+  const isWarRoom = pathname?.includes('/warroom');
 
   if (loading || !user) {
     return (
@@ -24,12 +27,12 @@ export default function DashboardLayout({
 
   return (
     <div className="min-h-screen bg-[#0b0f19] flex overflow-hidden">
-      {/* Sidebar navigation */}
+      {/* Collapsible Sidebar navigation */}
       <Sidebar />
 
       {/* Main dashboard content container */}
       <main className="flex-1 flex flex-col h-screen overflow-y-auto">
-        <div className="flex-1 p-8">
+        <div className={`flex-1 ${isWarRoom ? 'p-2 sm:p-3' : 'p-8'}`}>
           {children}
         </div>
       </main>
