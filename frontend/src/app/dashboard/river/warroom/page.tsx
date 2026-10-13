@@ -118,6 +118,9 @@ export interface DeviceData {
   bottom_to_bank_cm?: number;
   bank_to_sensor_cm?: number;
   offline_threshold_min?: number;
+  snapshot_url0?: string;
+  cctv_path_0?: string;
+  cctv_path_1?: string;
 }
 
 // ============================================================================
@@ -281,15 +284,26 @@ const CameraTile = memo(function CameraTile({
           className="flex-1 min-h-0 w-full h-full relative overflow-hidden bg-black flex items-center justify-center cursor-pointer"
           title="คลิกเพื่อดูรายละเอียดสถานีพร้อมกราฟและข้อมูลอุปกรณ์"
         >
-          <RtspPlayer
-            serial={serial}
-            apiFetch={apiFetch}
-            apiBaseUrl={apiBaseUrl}
-            fillParent={true}
-            hideControls={true}
-            onVideoClick={() => onFocusSingle(serial)}
-            className="w-full h-full object-contain"
-          />
+          {(() => {
+            const fallbackSnap = device?.snapshot_url0 && device.snapshot_url0 !== '-'
+              ? `${apiBaseUrl}/river/images/proxy?url=${encodeURIComponent(device.snapshot_url0)}`
+              : undefined;
+
+            return (
+              <RtspPlayer
+                serial={serial}
+                fallbackImageUrl={fallbackSnap}
+                staggerDelay={1200 + slotIdx * 350}
+                apiFetch={apiFetch}
+                apiBaseUrl={apiBaseUrl}
+                fillParent={true}
+                hideControls={true}
+                skipStreamWakeup={true}
+                onVideoClick={() => onFocusSingle(serial)}
+                className="w-full h-full object-contain"
+              />
+            );
+          })()}
         </div>
       )}
 
@@ -567,6 +581,17 @@ export default function RiverWarRoomPage() {
     totalPoolCount,
     slotOverrides,
   ]);
+
+  // Register active batch cameras into go2rtc media engine (Non-blocking async, <5ms)
+  const currentBatchKey = displayedSerials.join(',');
+  useEffect(() => {
+    if (displayedSerials.length === 0) return;
+    apiFetch(`${API_BASE_URL}/river/devices/batch-stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ serials: displayedSerials }),
+    }).catch(() => {});
+  }, [currentBatchKey, apiFetch]);
 
   // 8. Fullscreen Toggle (Target containerRef to isolate War Room from Sidebar)
   const toggleFullscreen = useCallback(() => {
@@ -1141,7 +1166,7 @@ export default function RiverWarRoomPage() {
                   const device = devices.find((d) => d.serial === serial);
                   return (
                     <CameraTile
-                      key={`${serial}-${slotIdx}`}
+                      key={`slot-${slotIdx}`}
                       serial={serial}
                       slotIdx={slotIdx}
                       device={device}

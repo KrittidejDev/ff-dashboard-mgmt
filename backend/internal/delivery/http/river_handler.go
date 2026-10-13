@@ -186,6 +186,18 @@ func (h *RiverHandler) GetDevices(c fiber.Ctx) error {
 		status = &statusStr
 	}
 
+	// Short-lived Redis cache for default device queries (10s) to absorb high-frequency War Room polling
+	isDefaultQuery := (pageID == nil && status == nil)
+	cacheKey := "ff:river:devices_cache:all"
+	if isDefaultQuery && h.rdb != nil {
+		if cached, err := h.rdb.Get(c.Context(), cacheKey).Result(); err == nil && cached != "" {
+			var cachedDevices []*domain.RiverDevice
+			if err := json.Unmarshal([]byte(cached), &cachedDevices); err == nil && len(cachedDevices) > 0 {
+				return c.JSON(cachedDevices)
+			}
+		}
+	}
+
 	devices, err := h.client.GetDevices(c.Context(), pageID, status)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
@@ -212,6 +224,12 @@ func (h *RiverHandler) GetDevices(c fiber.Ctx) error {
 		} else {
 			for _, dev := range devices {
 				dev.WarningStatus = "NORMAL"
+			}
+		}
+
+		if isDefaultQuery {
+			if data, err := json.Marshal(devices); err == nil {
+				_ = h.rdb.Set(c.Context(), cacheKey, data, 10*time.Second)
 			}
 		}
 	} else {
@@ -1007,6 +1025,89 @@ func (h *RiverHandler) ProxyImage(c fiber.Ctx) error {
 	return c.Redirect().To(signedURL)
 }
 
+type BatchStreamRequest struct {
+	Serials []string `json:"serials"`
+}
+
+func (h *RiverHandler) InitializeBatchStream(c fiber.Ctx) error {
+	var req BatchStreamRequest
+	if err := c.Bind().JSON(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request body"})
+	}
+
+	if len(req.Serials) == 0 {
+		return c.JSON(fiber.Map{"success": true, "warmed": 0})
+	}
+
+	if h.streamClient == nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "stream client not initialized"})
+	}
+
+	// Deduplicate serials to prevent duplicate worker allocations
+	uniqueSerials := make([]string, 0, len(req.Serials))
+	seen := make(map[string]bool)
+	for _, s := range req.Serials {
+		serial := strings.TrimSpace(s)
+		if serial != "" && !seen[serial] {
+			seen[serial] = true
+			uniqueSerials = append(uniqueSerials, serial)
+		}
+	}
+
+	if len(uniqueSerials) == 0 {
+		return c.JSON(fiber.Map{"success": true, "warmed": 0})
+	}
+
+	// Asynchronously warm up streams in background so HTTP response returns in <5ms,
+	// preventing browser connection exhaustion and UI stalling on War Room
+	go func(serials []string) {
+		sem := make(chan struct{}, 4)
+		for _, s := range serials {
+			sem <- struct{}{}
+			go func(ser string) {
+				defer func() { <-sem }()
+
+				bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+
+				rtspURL := ""
+				rtspCacheKey := "ff:river:rtsp:" + ser
+				if h.rdb != nil {
+					if cached, err := h.rdb.Get(bgCtx, rtspCacheKey).Result(); err == nil && cached != "" {
+						rtspURL = cached
+					}
+				}
+
+				if rtspURL == "" {
+					latest, err := h.client.GetLatestCurrentGroup(bgCtx, ser)
+					if err == nil && latest != nil && latest.SnapshotURL1 != "" && latest.SnapshotURL1 != "-" {
+						rtspURL = latest.SnapshotURL1
+					} else {
+						dev, err := h.client.GetDeviceBySerial(bgCtx, ser)
+						if err == nil && dev != nil && dev.CCTVPath1 != "" && dev.CCTVPath1 != "-" {
+							rtspURL = dev.CCTVPath1
+						}
+					}
+					rtspURL = preferSubStream102(rtspURL)
+					if rtspURL != "" && h.rdb != nil {
+						_ = h.rdb.Set(bgCtx, rtspCacheKey, rtspURL, 1*time.Hour)
+					}
+				}
+
+				if rtspURL != "" {
+					rtspURL = preferSubStream102(rtspURL)
+					_, _ = h.streamClient.InitializeStream(bgCtx, ser, rtspURL)
+				}
+			}(s)
+		}
+	}(uniqueSerials)
+
+	return c.JSON(fiber.Map{
+		"success": true,
+		"warmed":  len(uniqueSerials),
+	})
+}
+
 func (h *RiverHandler) InitializeStream(c fiber.Ctx) error {
 	serial := c.Params("serial")
 	if serial == "" {
@@ -1030,12 +1131,8 @@ func (h *RiverHandler) InitializeStream(c fiber.Ctx) error {
 		}
 	}
 
-	// ⚡ Optimize stream for cellular/SIM card network (RTSP Sub-Stream fallback)
-	// Replace Hikvision Main-Stream (/Channels/101) with Sub-Stream (/Channels/102)
-	// to reduce bandwidth consumption by 80-90% over the weak cellular signal on-site.
-	if strings.Contains(rtspURL, "/Channels/101") {
-		rtspURL = strings.Replace(rtspURL, "/Channels/101", "/Channels/102", 1)
-	}
+	// Prioritize Sub Stream 102 for ultra-fast startup and smooth multi-channel playback
+	rtspURL = preferSubStream102(rtspURL)
 
 	// 2. Call StreamClient via gRPC
 	if h.streamClient == nil {
@@ -1052,6 +1149,27 @@ func (h *RiverHandler) InitializeStream(c fiber.Ctx) error {
 		"ice_servers": resp.IceServers,
 		"session_id":  resp.SessionId,
 	})
+}
+
+// preferSubStream102 rewrites high-bitrate main stream (101) URLs to low-bitrate sub stream (102)
+// to optimize multi-camera war room latency, reduce CPU load, and prevent 4G/VPN bandwidth saturation.
+func preferSubStream102(rawURL string) string {
+	if rawURL == "" || rawURL == "-" {
+		return rawURL
+	}
+	if strings.Contains(rawURL, "Channels/101") {
+		return strings.Replace(rawURL, "Channels/101", "Channels/102", 1)
+	}
+	if strings.Contains(rawURL, "/101") {
+		return strings.Replace(rawURL, "/101", "/102", 1)
+	}
+	if strings.Contains(rawURL, "/main") {
+		return strings.Replace(rawURL, "/main", "/sub", 1)
+	}
+	if strings.Contains(rawURL, "stream1") {
+		return strings.Replace(rawURL, "stream1", "stream2", 1)
+	}
+	return rawURL
 }
 
 func (h *RiverHandler) TerminateStream(c fiber.Ctx) error {

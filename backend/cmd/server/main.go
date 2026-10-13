@@ -231,6 +231,7 @@ func main() {
 	riverGroup.Get("/devices/:serial", riverHandler.GetDeviceBySerial)
 	riverGroup.Put("/devices/:serial", riverHandler.UpdateDevice)
 	riverGroup.Delete("/devices/:serial", riverHandler.DeleteDevice)
+	riverGroup.Post("/devices/batch-stream", riverHandler.InitializeBatchStream)
 	riverGroup.Post("/devices/:serial/stream", riverHandler.InitializeStream)
 	riverGroup.Delete("/devices/:serial/stream", riverHandler.TerminateStream)
 	riverGroup.Post("/devices/:serial/ptz", riverHandler.ControlPTZ)

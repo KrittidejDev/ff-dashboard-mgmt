@@ -31,6 +31,9 @@ type RiverDevice struct {
 	CCTVPath0           string     `json:"cctv_path_0"`
 	CCTVPath1           string     `json:"cctv_path_1"`
 	CCTVPath2           string     `json:"cctv_path_2"`
+	SnapshotURL0        *string    `json:"snapshot_url0,omitempty"`
+	SnapshotURL1        *string    `json:"snapshot_url1,omitempty"`
+	SnapshotURL2        *string    `json:"snapshot_url2,omitempty"`
 	LevelCM             *float64   `json:"level_cm,omitempty"`
 	NetWaterLevelCM     *float64   `json:"net_water_level_cm,omitempty"`
 	WaterLevelPct       *float64   `json:"water_level_pct,omitempty"`

@@ -126,8 +126,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const apiFetch = async (url: string, options: RequestInit = {}): Promise<Response> => {
     const headers = new Headers(options.headers || {});
-    if (token) {
-      headers.set('Authorization', `Bearer ${token}`);
+    const activeToken =
+      token || (typeof window !== 'undefined' ? localStorage.getItem('ff_dashboard_token') : null);
+    if (activeToken) {
+      headers.set('Authorization', `Bearer ${activeToken}`);
     }
 
     const fetchWithTimeout = async (attempt = 0): Promise<Response> => {
