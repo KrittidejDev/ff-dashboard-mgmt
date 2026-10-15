@@ -126,6 +126,7 @@ func main() {
 	riverClient := external.NewRiverServiceClient(cfg.RiverServiceURL)
 	streamClient := external.NewStreamClient(cfg)
 	riverHandler := http.NewRiverHandler(riverClient, riverRdb, streamClient, l)
+	riverHandler.StartPosterSyncWorker(context.Background())
 
 	// 7. Fiber App Setup
 	app := fiber.New(fiber.Config{
@@ -234,6 +235,7 @@ func main() {
 	riverGroup.Post("/devices/batch-stream", riverHandler.InitializeBatchStream)
 	riverGroup.Post("/devices/:serial/stream", riverHandler.InitializeStream)
 	riverGroup.Delete("/devices/:serial/stream", riverHandler.TerminateStream)
+	riverGroup.Get("/devices/:serial/poster", riverHandler.GetDevicePoster)
 	riverGroup.Post("/devices/:serial/ptz", riverHandler.ControlPTZ)
 	riverGroup.Get("/unregistered-serials", riverHandler.GetUnregisteredSerials)
 	riverGroup.Get("/unregistered-devices", riverHandler.GetUnregisteredDevices)

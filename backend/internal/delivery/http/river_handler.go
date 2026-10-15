@@ -1526,4 +1526,150 @@ func (h *RiverHandler) GetNoiseAuditLogs(c fiber.Ctx) error {
 	})
 }
 
+// posterClient is a shared HTTP client with connection pooling for proxying poster requests
+var posterClient = &http.Client{
+	Timeout: 5 * time.Second,
+	Transport: &http.Transport{
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 20,
+		IdleConnTimeout:     90 * time.Second,
+	},
+}
+
+// GetDevicePoster proxies the requested camera poster frame from cctv-stream-service (Redis cache)
+// Route: GET /api/v1/river/devices/:serial/poster
+func (h *RiverHandler) GetDevicePoster(c fiber.Ctx) error {
+	serial := c.Params("serial")
+	if serial == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "serial is required"})
+	}
+
+	cctvBaseURL := os.Getenv("CCTV_STREAM_HTTP_URL")
+	if cctvBaseURL == "" {
+		cctvBaseURL = "http://10.1.2.7:8082"
+	}
+	cctvBaseURL = strings.TrimRight(cctvBaseURL, "/")
+
+	reqURL := fmt.Sprintf("%s/api/v1/stream/poster/%s", cctvBaseURL, serial)
+	req, err := http.NewRequestWithContext(c.Context(), http.MethodGet, reqURL, nil)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	resp, err := posterClient.Do(req)
+	if err != nil {
+		return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{"error": "failed to connect to stream service", "offline": true})
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		c.Set("Content-Type", "image/jpeg")
+		c.Set("Cache-Control", "public, max-age=15, stale-while-revalidate=45")
+		data, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to read poster image"})
+		}
+		return c.Send(data)
+	}
+
+	return c.Status(resp.StatusCode).JSON(fiber.Map{
+		"error":   "poster frame not available or camera offline",
+		"offline": true,
+	})
+}
+
+type syncCameraItem struct {
+	Serial    string `json:"serial"`
+	SourceURL string `json:"source_url"`
+}
+
+// StartPosterSyncWorker starts a background worker that fetches cameras from River DB,
+// converts their URLs to Sub Stream 102, and registers them with cctv-stream-service.
+func (h *RiverHandler) StartPosterSyncWorker(ctx context.Context) {
+	go func() {
+		// Initial sync after brief delay for server initialization
+		time.Sleep(5 * time.Second)
+		h.syncCamerasToStreamService()
+
+		// Periodic sync every 10 minutes
+		ticker := time.NewTicker(10 * time.Minute)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				h.syncCamerasToStreamService()
+			}
+		}
+	}()
+}
+
+func (h *RiverHandler) syncCamerasToStreamService() {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	devices, err := h.client.GetDevices(ctx, nil, nil)
+	if err != nil {
+		h.logger.Warn("poster sync: failed to fetch devices from river service", zap.Error(err))
+		return
+	}
+
+	var targets []syncCameraItem
+	for _, dev := range devices {
+		rtspURL := ""
+		if dev.SnapshotURL1 != nil && *dev.SnapshotURL1 != "" && *dev.SnapshotURL1 != "-" {
+			rtspURL = *dev.SnapshotURL1
+		} else if dev.CCTVPath1 != "" && dev.CCTVPath1 != "-" {
+			rtspURL = dev.CCTVPath1
+		}
+		if rtspURL != "" {
+			subURL := preferSubStream102(rtspURL)
+			targets = append(targets, syncCameraItem{
+				Serial:    dev.Serial,
+				SourceURL: subURL,
+			})
+		}
+	}
+
+	if len(targets) == 0 {
+		return
+	}
+
+	cctvBaseURL := os.Getenv("CCTV_STREAM_HTTP_URL")
+	if cctvBaseURL == "" {
+		cctvBaseURL = "http://10.1.2.7:8082"
+	}
+	cctvBaseURL = strings.TrimRight(cctvBaseURL, "/")
+
+	payload, err := json.Marshal(map[string]interface{}{
+		"cameras": targets,
+	})
+	if err != nil {
+		return
+	}
+
+	reqURL := fmt.Sprintf("%s/api/v1/stream/cameras/sync", cctvBaseURL)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewReader(payload))
+	if err != nil {
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := posterClient.Do(req)
+	if err != nil {
+		h.logger.Warn("poster sync: failed to post camera targets to stream service", zap.Error(err))
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		h.logger.Info("poster sync: successfully synced cameras with stream service", zap.Int("count", len(targets)))
+	} else {
+		h.logger.Warn("poster sync: stream service returned non-200", zap.Int("status", resp.StatusCode))
+	}
+}
+
+
 

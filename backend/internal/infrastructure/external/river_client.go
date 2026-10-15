@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"time"
 
@@ -60,6 +61,12 @@ func (c *RiverServiceClient) doRequest(ctx context.Context, method, path string,
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
+
+	masterKey := os.Getenv("CPS_INTERNAL_MASTER_KEY")
+	if masterKey == "" {
+		masterKey = "cps_master_4e281783f2dbfdd0a632da8b294a5492858c5b7ba1fb7c2c3eb7c8e0f8d008e2"
+	}
+	req.Header.Set("X-Master-Key", masterKey)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

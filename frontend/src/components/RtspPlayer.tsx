@@ -629,17 +629,58 @@ export function RtspPlayer({
     [serial]
   );
 
+  const posterApiUrl = useMemo(() => {
+    if (!serial) return '';
+    const base = apiBaseUrl ? apiBaseUrl.replace(/\/$/, '') : '';
+    return `${base}/river/devices/${encodeURIComponent(serial)}/poster`;
+  }, [apiBaseUrl, serial]);
+
   const persistentSnapshot = useMemo(() => getCachedSnapshot(serial), [serial]);
   const initialSnap = useMemo(() => fallbackImageUrl || persistentSnapshot || '', [fallbackImageUrl, persistentSnapshot]);
   const [activeSnapshotUrl, setActiveSnapshotUrl] = useState<string>(() => initialSnap);
-  const [isSnapshotLoaded, setIsSnapshotLoaded] = useState<boolean>(() => !!initialSnap);
+  const [isSnapshotLoaded, setIsSnapshotLoaded] = useState<boolean>(() => !!(fallbackImageUrl || persistentSnapshot));
 
   useEffect(() => {
-    const cached = getCachedSnapshot(serial);
-    const snap = fallbackImageUrl || cached || '';
-    setActiveSnapshotUrl(snap);
-    setIsSnapshotLoaded(!!snap);
-  }, [serial, fallbackImageUrl]);
+    if (!serial) return;
+
+    let isCancelled = false;
+    let createdBlobUrl = '';
+
+    const fetchPoster = async () => {
+      if (!posterApiUrl) return;
+      try {
+        const fetcher = apiFetch || fetch;
+        const res = await fetcher(posterApiUrl);
+        if (!res.ok) {
+          throw new Error(`poster fetch failed: ${res.status}`);
+        }
+        const blob = await res.blob();
+        if (blob.size < 1000 || isCancelled) return;
+
+        createdBlobUrl = URL.createObjectURL(blob);
+        setActiveSnapshotUrl(createdBlobUrl);
+        setIsSnapshotLoaded(true);
+      } catch {
+        if (!isCancelled) {
+          const cached = getCachedSnapshot(serial);
+          const fallback = fallbackImageUrl || cached || '';
+          if (fallback) {
+            setActiveSnapshotUrl(fallback);
+            setIsSnapshotLoaded(true);
+          }
+        }
+      }
+    };
+
+    fetchPoster();
+
+    return () => {
+      isCancelled = true;
+      if (createdBlobUrl) {
+        URL.revokeObjectURL(createdBlobUrl);
+      }
+    };
+  }, [serial, posterApiUrl, apiFetch, fallbackImageUrl]);
 
   // Fullscreen event listener
   useEffect(() => {
@@ -998,6 +1039,11 @@ export function RtspPlayer({
             }
           }}
           onError={(e) => {
+            // If posterApiUrl returns 404/offline, seamlessly fallback to fallbackImageUrl (DB telemetry snapshot)
+            if (fallbackImageUrl && activeSnapshotUrl !== fallbackImageUrl) {
+              setActiveSnapshotUrl(fallbackImageUrl);
+              return;
+            }
             // Immediately hide broken browser icon [?]
             (e.currentTarget as HTMLImageElement).style.opacity = '0';
             (e.currentTarget as HTMLImageElement).style.display = 'none';
