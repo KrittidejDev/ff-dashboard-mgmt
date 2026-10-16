@@ -1,0 +1,16 @@
+{
+  "watch": [
+    "cmd",
+    "internal",
+    "pkg",
+    ".env"
+  ],
+  "ext": "go,env",
+  "ignore": [
+    "*_test.go",
+    "bin/*",
+    "scratch/*",
+    "tmp/*"
+  ],
+  "exec": "go run cmd/server/main.go"
+}

@@ -908,6 +908,7 @@ export default function DeviceDetailPage({ params }: PageProps) {
             <div className="w-full aspect-video min-h-[300px] rounded-2xl overflow-hidden relative border border-slate-200 shadow-inner flex-1">
               {device && (
                 <RiverMap 
+                  serial={serial}
                   devices={mapDevices} 
                   height="h-full" 
                   className="w-full h-full min-h-[300px]" 

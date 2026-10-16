@@ -1,0 +1,14 @@
+{
+  "name": "ff-dashboard-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Backend Go Fiber service for ff-dashboard-mgmt",
+  "scripts": {
+    "dev": "nodemon",
+    "start": "go run cmd/server/main.go",
+    "build": "go build -o bin/server.exe cmd/server/main.go"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9"
+  }
+}

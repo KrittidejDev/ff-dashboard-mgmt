@@ -97,6 +97,7 @@ const FahfonMap = React.memo(function FahfonMap({
   activeTab = 'monitor',
 }: FahfonMapProps) {
   const defaultCenter: [number, number] = [13.7367, 100.5231];
+  const [mapStyle, setMapStyle] = React.useState<'satellite' | 'dark' | 'street'>('satellite');
 
   // Low-priority update — auto-refresh won't interrupt user interactions
   const deferredDevices = useDeferredValue(devices);
@@ -296,16 +297,72 @@ const FahfonMap = React.memo(function FahfonMap({
         </div>
       </div>
 
+      {/* Map Layer Switcher: Satellite / Dark / Street */}
+      <div className="absolute top-2 right-2 z-[1000] flex items-center bg-black/80 backdrop-blur border border-slate-700/80 rounded-lg p-0.5 text-[9.5px] font-bold shadow-lg select-none">
+        <button
+          type="button"
+          onClick={() => setMapStyle('satellite')}
+          className={`px-1.5 py-0.5 rounded transition ${mapStyle === 'satellite' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}
+          title="สลับมุมมองดาวเทียม (Google Satellite Hybrid)"
+        >
+          🛰️ ดาวเทียม
+        </button>
+        <button
+          type="button"
+          onClick={() => setMapStyle('dark')}
+          className={`px-1.5 py-0.5 rounded transition ${mapStyle === 'dark' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}
+          title="สลับมุมมอง Dark Mode (Esri Dark Canvas)"
+        >
+          🌑 Dark
+        </button>
+        <button
+          type="button"
+          onClick={() => setMapStyle('street')}
+          className={`px-1.5 py-0.5 rounded transition ${mapStyle === 'street' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}
+          title="สลับมุมมองแผนที่ถนน (Roadmap)"
+        >
+          🗺️ ถนน
+        </button>
+      </div>
+
       <MapContainer
+        key={`fahfon-sense-map-${mapStyle}`}
         center={defaultCenter}
         zoom={6}
         scrollWheelZoom={true}
         className="w-full h-full"
       >
-        <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-          url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
-        />
+        {/* 100% Free, Zero-Watermark High-Performance GIS Tiles */}
+        {mapStyle === 'satellite' ? (
+          <TileLayer
+            key="tile-satellite"
+            attribution='&copy; Google Maps Satellite'
+            url="https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}&hl=th"
+            subdomains={['0', '1', '2', '3']}
+            maxZoom={20}
+            keepBuffer={6}
+            updateWhenIdle={false}
+          />
+        ) : mapStyle === 'dark' ? (
+          <TileLayer
+            key="tile-dark"
+            attribution='&copy; Esri World Dark Gray Base'
+            url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}"
+            maxZoom={19}
+            keepBuffer={6}
+            updateWhenIdle={false}
+          />
+        ) : (
+          <TileLayer
+            key="tile-street"
+            attribution='&copy; Google Maps Roadmap'
+            url="https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}&hl=th"
+            subdomains={['0', '1', '2', '3']}
+            maxZoom={20}
+            keepBuffer={6}
+            updateWhenIdle={false}
+          />
+        )}
         <MarkerClusterGroup
           chunkedLoading
           chunkInterval={50}
