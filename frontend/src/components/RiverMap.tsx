@@ -119,6 +119,7 @@ interface RiverMapProps {
   activeSerials?: string[];
   disableCluster?: boolean;
   onSelectStation?: (serial: string) => void;
+  serial?: string;
 }
 
 // Custom cluster icon — clean numeric bubble matching the design system from Fahfon Sense
@@ -143,7 +144,9 @@ const createClusterIcon = (cluster: any) => {
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
   });
-};const RiverMap = React.memo(function RiverMap({ devices, className, height, compact, activeSerials, onSelectStation, disableCluster }: RiverMapProps) {
+};
+
+const RiverMap = React.memo(function RiverMap({ devices, className, height, compact, activeSerials, onSelectStation, disableCluster, serial }: RiverMapProps) {
   const defaultCenter: [number, number] = [13.8420, 100.5976];
 
   const deferredDevices = useDeferredValue(devices);
@@ -583,6 +586,7 @@ const createClusterIcon = (cluster: any) => {
       </div>
 
       <MapContainer
+        key={serial || (validDevices.length === 1 ? validDevices[0]?.serial : 'global-river-map')}
         center={centerPosition}
         zoom={validDevices.length === 1 ? 14 : 10}
         scrollWheelZoom={true}
